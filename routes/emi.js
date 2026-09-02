@@ -1,0 +1,128 @@
+const router = require("express").Router();
+const EMIPlan = require("../models/EMIPlan");
+const Payment = require("../models/Payment");
+const { auth, adminOnly } = require("../middleware/auth");
+
+// POST /api/emi - Create EMI plan
+router.post("/", auth, async (req, res) => {
+  try {
+    const { purchaseType, purchaseName, totalAmount, bobPaidAmount, paidAmount, bookingId, orderId } = req.body;
+
+    const bobPaid = Math.min(totalAmount, Math.max(0, bobPaidAmount || 0));
+    const alreadyPaid = Math.min(Math.max(0, paidAmount || 0), totalAmount - bobPaid);
+    const pending = Math.max(0, totalAmount - bobPaid - alreadyPaid);
+
+    const plan = await EMIPlan.create({
+      customerId: req.user._id,
+      purchaseType,
+      purchaseName,
+      totalAmount,
+      bobPaidAmount: bobPaid,
+      paidAmount: alreadyPaid,
+      pendingAmount: pending,
+      bookingId: bookingId || undefined,
+      orderId: orderId || undefined,
+      status: pending <= 0 ? "COMPLETED" : "ACTIVE",
+    });
+
+    res.status(201).json({ message: "EMI plan created", plan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/emi - My plans (customer) or all (admin)
+router.get("/", auth, async (req, res) => {
+  try {
+    const filter = req.user.role === "ADMIN" ? {} : { customerId: req.user._id };
+    const plans = await EMIPlan.find(filter).sort({ createdAt: -1 });
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET /api/emi/:id
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const plan = await EMIPlan.findById(req.params.id);
+    if (!plan) return res.status(404).json({ message: "EMI plan not found" });
+    res.json(plan);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /api/emi/:id/pay - Submit flexible payment (₹10 to pending)
+router.post("/:id/pay", auth, async (req, res) => {
+  try {
+    const { amount, transactionId, screenshotUrl } = req.body;
+
+    if (!amount || amount < 10) {
+      return res.status(400).json({ message: "Minimum payment is ₹10" });
+    }
+
+    const plan = await EMIPlan.findById(req.params.id);
+    if (!plan) return res.status(404).json({ message: "EMI plan not found" });
+    if (plan.status === "COMPLETED") {
+      return res.status(400).json({ message: "EMI plan already completed" });
+    }
+    if (amount > plan.pendingAmount) {
+      return res.status(400).json({ message: `Payment cannot exceed pending: ₹${plan.pendingAmount}` });
+    }
+
+    plan.paymentHistory.push({
+      amount,
+      transactionId: transactionId || "",
+      screenshotUrl: screenshotUrl || "",
+      status: "PENDING",
+      submittedAt: new Date(),
+    });
+    await plan.save();
+
+    res.json({ message: "Payment submitted for verification", plan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// PATCH /api/emi/:planId/approve/:paymentId - Admin approve
+router.patch("/:planId/approve/:paymentId", auth, adminOnly, async (req, res) => {
+  try {
+    const plan = await EMIPlan.findById(req.params.planId);
+    if (!plan) return res.status(404).json({ message: "EMI plan not found" });
+
+    const payment = plan.paymentHistory.id(req.params.paymentId);
+    if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+    payment.status = "APPROVED";
+    payment.approvedAt = new Date();
+    plan.paidAmount = Math.min(plan.totalAmount - plan.bobPaidAmount, plan.paidAmount + payment.amount);
+    plan.pendingAmount = Math.max(0, plan.totalAmount - plan.bobPaidAmount - plan.paidAmount);
+    plan.status = plan.pendingAmount <= 0 ? "COMPLETED" : "ACTIVE";
+
+    await plan.save();
+    res.json({ message: "EMI payment approved", plan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// PATCH /api/emi/:planId/reject/:paymentId - Admin reject
+router.patch("/:planId/reject/:paymentId", auth, adminOnly, async (req, res) => {
+  try {
+    const plan = await EMIPlan.findById(req.params.planId);
+    if (!plan) return res.status(404).json({ message: "EMI plan not found" });
+
+    const payment = plan.paymentHistory.id(req.params.paymentId);
+    if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+    payment.status = "REJECTED";
+    await plan.save();
+    res.json({ message: "EMI payment rejected", plan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;
