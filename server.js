@@ -50,8 +50,8 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start ──────────────────────────────────
-const PORT = parseInt(process.env.PORT, 10) || 5002;
-app.listen(PORT, () => {
+const PORT = parseInt(process.env.PORT, 10) || 8080;
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🎋 QURUX Backend running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/api/health\n`);
 });
