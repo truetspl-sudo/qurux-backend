@@ -4,14 +4,16 @@ const mongoose = require("mongoose");
 const depositSchema = new mongoose.Schema({
   originalAmount: { type: Number, required: true },
   depositDate: { type: Date, default: Date.now },
+  submittedAt: { type: Date, default: Date.now }, // when customer requested
+  approvedAt: { type: Date, default: null }, // when admin approved
   usedAmount: { type: Number, default: 0 },
   benefitEnabled: { type: Boolean, default: true }, // false if used before 30 days
   status: {
     type: String,
-    enum: ["ACTIVE", "USED", "FROZEN"],
-    default: "ACTIVE",
+    enum: ["PENDING", "ACTIVE", "USED", "FROZEN", "REJECTED"],
+    default: "PENDING",
   },
-  reference: { type: String, default: "" }, // payment ID
+  reference: { type: String, default: "" }, // UPI transaction id / UTR
 });
 
 const walletSchema = new mongoose.Schema(
