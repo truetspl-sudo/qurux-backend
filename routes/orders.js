@@ -24,7 +24,12 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
     let subtotal = 0;
     const orderItems = [];
     for (const item of items) {
-      const product = await Product.findById(item.productId);
+      // Product can be referenced by Mongo _id or by catalog slug (e.g. essn-glow-serum)
+      let product = null;
+      try {
+        product = await Product.findById(item.productId);
+      } catch { /* not a valid ObjectId — try slug */ }
+      if (!product) product = await Product.findOne({ slug: item.productId });
       if (!product) return res.status(400).json({ message: `Product not found: ${item.productId}` });
       if (product.stock < (item.quantity || 1)) {
         return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
