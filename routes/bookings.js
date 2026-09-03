@@ -60,9 +60,10 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       bobPaidAmount: bobPaid,
       cashAmount: cashAmount || 0,
       emiAmount: emiAmount || 0,
-      // Manual payment model: NO auto-PAID. Customer pays via UPI, admin
-      // verifies & approves the Payment record — only then is it PAID.
-      paymentStatus: paymentMethod === "BOB" ? "PAID" : "PENDING",
+      // Manual model (no payment gateway): booking ke waqt koi payment nahi.
+      // FULL / EMI / BOB sab PENDING start hote hain — admin service close
+      // karte waqt payment update karta hai (mode + amount manually).
+      paymentStatus: "PENDING",
       meetsMinAmount: serviceLocation !== "HOME" || amount >= 2500,
     });
 
@@ -141,7 +142,7 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
 // PATCH /api/bookings/:id/close - Admin closure with rating
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, customerRemarks, rating, paymentStatus, cashAmount, paymentMethod } = req.body;
+    const { adminRemarks, customerRemarks, rating, paymentStatus, cashAmount, paymentMethod, paidVia } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
@@ -162,6 +163,9 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
         : "PAID";
     if (paymentMethod && ["FULL", "EMI", "BOB", "MIXED", "UPI", "CASH"].includes(paymentMethod)) {
       booking.paymentMethod = paymentMethod === "UPI" || paymentMethod === "CASH" ? "FULL" : paymentMethod;
+    }
+    if (paidVia && ["CASH", "UPI", "BOB", "EMI"].includes(paidVia)) {
+      booking.paidVia = paidVia;
     }
     if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
       booking.cashAmount = Number(cashAmount);

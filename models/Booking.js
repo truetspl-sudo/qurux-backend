@@ -51,6 +51,8 @@ const bookingSchema = new mongoose.Schema(
       enum: ["PENDING", "PAID", "PARTIAL", "REFUNDED"],
       default: "PENDING",
     },
+    // Manual model: admin closure pe batata hai customer ne kis mode me pay kiya
+    paidVia: { type: String, default: "CASH" }, // CASH | UPI | BOB | EMI
 
     // Status
     status: {

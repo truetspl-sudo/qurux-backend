@@ -61,9 +61,10 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       paymentMethod: paymentMethod || "FULL",
       bobPaidAmount: bobPaidAmount || 0,
       cashAmount: cashAmount || 0,
-      // Manual payment model: NO auto-PAID. Customer pays via UPI, admin
-      // verifies & approves the Payment record — only then is it PAID.
-      paymentStatus: paymentMethod === "BOB" ? "PAID" : "PENDING",
+      // Manual model (no payment gateway): sab kuch PENDING start hota hai.
+      // Order submit hote hi PAID NAHI hota — admin WhatsApp pe payment
+      // verify karke /orders/:id/pay se PAID karta hai (like service closure).
+      paymentStatus: "PENDING",
       customerName: req.user.fullName,
       customerPhone: req.user.mobile,
     });
@@ -74,17 +75,25 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
   }
 });
 
-// PATCH /api/orders/:id/pay - Mark paid (after Payment approved manually)
+// PATCH /api/orders/:id/pay - Admin manual payment update (after verifying on WhatsApp)
 router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
   try {
+    const { paymentStatus, cashAmount } = req.body;
     let order = null;
     try { order = await Order.findById(req.params.id); } catch {}
     if (!order) order = await Order.findOne({ orderId: req.params.id });
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    order.paymentStatus = "PAID";
+    // Manual model: default PAID; admin can also record PARTIAL + amount
+    order.paymentStatus =
+      paymentStatus && ["PAID", "PENDING", "PARTIAL", "REFUNDED"].includes(paymentStatus)
+        ? paymentStatus
+        : "PAID";
+    if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
+      order.cashAmount = Number(cashAmount);
+    }
     await order.save();
-    res.json({ message: "Order marked PAID", order });
+    res.json({ message: "Order payment updated", order });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

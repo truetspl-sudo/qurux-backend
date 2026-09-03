@@ -76,16 +76,36 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
 6. **Never silently invent fake/demo data** in admin pages. If API returns
    empty or 401, show empty state + clear "login as Admin required" banner.
 
-7. **SERVICE FULL PAYMENT = PAY AFTER SERVICE (booking rule).**
-   - Customer selects "Full Payment" for a SERVICE booking → booking is
-     created WITHOUT any payment step. No PaymentForm at booking time.
-   - Confirmation message says: "Payment service hone ke BAAD karein (UPI/Cash)."
-   - Service is delivered first. Then admin closes the service in
-     `admin/closures` — the closure modal has a **Payment Update** section
-     (PAID / PARTIAL / PENDING + amount collected) and the backend
-     `/bookings/:id/close` writes that paymentStatus + cashAmount onto the booking.
-   - Shop ORDER payments (products, delivered later) still use the manual
-     UPI-proof flow: PaymentForm → PENDING → admin approve → order PAID.
+7. **SERVICE BOOKING PAYMENT = PAY AFTER SERVICE — KISI BHI OPTION ME.**
+   - Customer selects ANY option (Full Payment / No Cost EMI / Pay from BOB)
+     for a SERVICE booking → booking is created PENDING via `/bookings` with
+     the chosen `paymentMethod` (FULL/EMI/BOB). NO payment step, NO
+     PaymentForm, NO wallet deduction at booking time (booking page has no
+     separate EMI/BOB localStorage logic anymore — `/booking` was rewritten).
+   - Confirmation says: "Booking ke waqt koi payment nahi — service hone ke
+     BAAD payment (UPI/Cash)."
+   - Admin closes the service in `admin/closures` — closure modal now has a
+     **Payment Update** section: PAID VIA (mode: CASH/UPI/BOB/EMI) + PAYMENT
+     STATUS (PAID/PARTIAL/PENDING) + AMOUNT COLLECTED. Backend
+     `/bookings/:id/close` writes paymentStatus + cashAmount + paidVia onto the booking.
+
+8. **PRODUCTS / COURSES ORDERS = SAME MANUAL MODEL AS SERVICE BOOKINGS.**
+   - Shop checkout `/checkout` and any course order: customer just submits the
+     order → order created PENDING (NO auto-PAID, NO forced PaymentForm step).
+     Payment proof is not collected at order time.
+   - Admin verifies payment on WhatsApp and updates order payment manually in
+     `admin/orders` (Payment Update section: PAID/PARTIAL/PENDING + amount,
+     `PATCH /orders/:id/pay`) exactly like service closures, and drives order
+     status (CONFIRMED → SHIPPED → DELIVERED).
+
+9. **BOB HAS NO SEPARATE LOGIN.** Website login (User ID + password) IS the
+   BOB login. No `bobApplications`, no separate BOB password, no
+   "BOB me login karein" gate anywhere. BOB page/options identify the
+   customer from the website login only.
+
+10. **COMPANY UPI BARCODE = `public/payment/quruxbarcode.png`** (original from
+    `Desktop/final`). Used in BOB deposit form, BOB EMI pay modal, and
+    PaymentForm QR. Deposit proof = transaction ID + screenshot upload.
 
 ---
 
@@ -222,9 +242,11 @@ balance/benefit now visible to customer
 
 ## 8. KNOWN GAPS / NOT DONE YET
 
-1. `/booking` page EMI & "Pay from BOB" branches still use legacy
-   localStorage (`bobDeposits`, `bobPayments`, `createBOBEMIPlan`) instead of
-   real `/emi` + `/wallet` APIs. Only FULL is real there. → next big task.
+1. `/booking` page EMI/BOB legacy localStorage code is REMOVED (rewritten) —
+   all three options now create a real PENDING booking. EMI plan creation
+   (`/emi` POST) still has no customer-facing trigger (booking records
+   paymentMethod=EMI; repayment plans/installments are created when admin
+   finalizes EMI via existing EMI admin flow).
 2. Mixed/Split payment logic in checkout is placeholder (₹0 hardcoded).
 3. Course customer purchase/enrollment full flow not yet verified E2E.
 4. Salon public registration page exists (`/salon/register`) — verify wiring.
