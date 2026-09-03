@@ -61,12 +61,30 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       paymentMethod: paymentMethod || "FULL",
       bobPaidAmount: bobPaidAmount || 0,
       cashAmount: cashAmount || 0,
-      paymentStatus: paymentMethod === "FULL" || paymentMethod === "BOB" ? "PAID" : "PENDING",
+      // Manual payment model: NO auto-PAID. Customer pays via UPI, admin
+      // verifies & approves the Payment record — only then is it PAID.
+      paymentStatus: paymentMethod === "BOB" ? "PAID" : "PENDING",
       customerName: req.user.fullName,
       customerPhone: req.user.mobile,
     });
 
     res.status(201).json({ message: "Order placed", order });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// PATCH /api/orders/:id/pay - Mark paid (after Payment approved manually)
+router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
+  try {
+    let order = null;
+    try { order = await Order.findById(req.params.id); } catch {}
+    if (!order) order = await Order.findOne({ orderId: req.params.id });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    order.paymentStatus = "PAID";
+    await order.save();
+    res.json({ message: "Order marked PAID", order });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

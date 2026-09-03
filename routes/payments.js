@@ -112,6 +112,16 @@ router.patch("/:id/approve", auth, adminOnly, async (req, res) => {
       { new: true }
     );
     if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+    // Manual payment model: approving a UPI payment marks the linked
+    // booking/order as PAID (only the admin sees the money, then clicks).
+    if (payment.bookingId) {
+      await Booking.findByIdAndUpdate(payment.bookingId, { paymentStatus: "PAID" });
+    }
+    if (payment.orderId) {
+      await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "PAID" });
+    }
+
     res.json({ message: "Payment approved", payment });
   } catch (error) {
     res.status(500).json({ message: error.message });

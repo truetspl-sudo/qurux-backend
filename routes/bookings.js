@@ -60,7 +60,9 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       bobPaidAmount: bobPaid,
       cashAmount: cashAmount || 0,
       emiAmount: emiAmount || 0,
-      paymentStatus: paymentMethod === "FULL" || paymentMethod === "BOB" ? "PAID" : "PENDING",
+      // Manual payment model: NO auto-PAID. Customer pays via UPI, admin
+      // verifies & approves the Payment record — only then is it PAID.
+      paymentStatus: paymentMethod === "BOB" ? "PAID" : "PENDING",
       meetsMinAmount: serviceLocation !== "HOME" || amount >= 2500,
     });
 
@@ -115,6 +117,22 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
     await booking.save();
 
     res.json({ message: "Status updated", booking });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// PATCH /api/bookings/:id/pay - Mark paid (after Payment approved manually)
+router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
+  try {
+    let booking = null;
+    try { booking = await Booking.findById(req.params.id); } catch {}
+    if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    booking.paymentStatus = "PAID";
+    await booking.save();
+    res.json({ message: "Booking marked PAID", booking });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
