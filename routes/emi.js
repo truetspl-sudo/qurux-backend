@@ -1,7 +1,29 @@
 const router = require("express").Router();
 const EMIPlan = require("../models/EMIPlan");
-const Payment = require("../models/Payment");
+const Booking = require("../models/Booking");
+const Order = require("../models/Order");
 const { auth, adminOnly } = require("../middleware/auth");
+
+// Resolve human bookingId/orderId (BK-..., ORD-...) or Mongo _id to document _id
+async function resolveBookingId(ref) {
+  if (!ref) return undefined;
+  try {
+    const b = await Booking.findById(ref);
+    if (b) return b._id;
+  } catch { /* fall through */ }
+  const b = await Booking.findOne({ bookingId: ref });
+  return b ? b._id : undefined;
+}
+
+async function resolveOrderId(ref) {
+  if (!ref) return undefined;
+  try {
+    const o = await Order.findById(ref);
+    if (o) return o._id;
+  } catch { /* fall through */ }
+  const o = await Order.findOne({ orderId: ref });
+  return o ? o._id : undefined;
+}
 
 // POST /api/emi - Create EMI plan
 router.post("/", auth, async (req, res) => {
@@ -12,6 +34,16 @@ router.post("/", auth, async (req, res) => {
     const alreadyPaid = Math.min(Math.max(0, paidAmount || 0), totalAmount - bobPaid);
     const pending = Math.max(0, totalAmount - bobPaid - alreadyPaid);
 
+    // bookingId/orderId from clients are human strings (BK-..., ORD-...) — resolve to ObjectId
+    const resolvedBookingId = await resolveBookingId(bookingId);
+    const resolvedOrderId = await resolveOrderId(orderId);
+    if (bookingId && !resolvedBookingId) {
+      return res.status(400).json({ message: "Booking not found" });
+    }
+    if (orderId && !resolvedOrderId) {
+      return res.status(400).json({ message: "Order not found" });
+    }
+
     const plan = await EMIPlan.create({
       customerId: req.user._id,
       purchaseType,
@@ -20,8 +52,8 @@ router.post("/", auth, async (req, res) => {
       bobPaidAmount: bobPaid,
       paidAmount: alreadyPaid,
       pendingAmount: pending,
-      bookingId: bookingId || undefined,
-      orderId: orderId || undefined,
+      bookingId: resolvedBookingId,
+      orderId: resolvedOrderId,
       status: pending <= 0 ? "COMPLETED" : "ACTIVE",
     });
 

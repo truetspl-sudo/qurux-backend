@@ -1,7 +1,31 @@
 const router = require("express").Router();
 const Payment = require("../models/Payment");
+const Booking = require("../models/Booking");
+const Order = require("../models/Order");
 const { auth, adminOnly } = require("../middleware/auth");
 const upload = require("../middleware/upload");
+
+// Resolve a human bookingId (e.g. BK-202609-5171) or Mongo _id to a Booking._id
+async function resolveBookingId(ref) {
+  if (!ref) return undefined;
+  try {
+    const b = await Booking.findById(ref);
+    if (b) return b._id;
+  } catch { /* not a valid ObjectId — fall through to string lookup */ }
+  const b = await Booking.findOne({ bookingId: ref });
+  return b ? b._id : undefined;
+}
+
+// Resolve a human orderId (e.g. ORD-...) or Mongo _id to an Order._id
+async function resolveOrderId(ref) {
+  if (!ref) return undefined;
+  try {
+    const o = await Order.findById(ref);
+    if (o) return o._id;
+  } catch { /* not a valid ObjectId — fall through to string lookup */ }
+  const o = await Order.findOne({ orderId: ref });
+  return o ? o._id : undefined;
+}
 
 // POST /api/payments/upload - Upload payment screenshot
 router.post("/upload", auth, upload.single("screenshot"), async (req, res) => {
@@ -33,6 +57,16 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "Valid amount required" });
     }
 
+    // bookingId/orderId from clients are human strings (BK-..., ORD-...) — resolve to ObjectId
+    const resolvedBookingId = await resolveBookingId(bookingId);
+    const resolvedOrderId = await resolveOrderId(orderId);
+    if (bookingId && !resolvedBookingId) {
+      return res.status(400).json({ message: "Booking not found" });
+    }
+    if (orderId && !resolvedOrderId) {
+      return res.status(400).json({ message: "Order not found" });
+    }
+
     const payment = await Payment.create({
       paymentId: genPaymentId(),
       customerId: req.user._id,
@@ -42,8 +76,8 @@ router.post("/", auth, async (req, res) => {
       upiId: upiId || "",
       screenshotUrl: screenshotUrl || "",
       referenceType: referenceType || "BOOKING",
-      bookingId: bookingId || undefined,
-      orderId: orderId || undefined,
+      bookingId: resolvedBookingId,
+      orderId: resolvedOrderId,
       referenceName: referenceName || "",
       status: "PENDING",
     });
