@@ -23,8 +23,10 @@ const userSchema = new mongoose.Schema(
       default: "PENDING",
     },
 
-    // Unique User ID (assigned by admin on approval)
-    userId: { type: String, unique: true, sparse: true, default: "" },
+    // Unique User ID (assigned by admin on approval). NOTE: no default —
+    // leaving it unset keeps the sparse unique index from colliding on ""
+    // (a default of "" made every pending signup duplicate-key error).
+    userId: { type: String, unique: true, sparse: true },
 
     // BOB
     bobAccountNumber: { type: String, default: "" },
