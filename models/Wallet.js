@@ -14,6 +14,7 @@ const depositSchema = new mongoose.Schema({
     default: "PENDING",
   },
   reference: { type: String, default: "" }, // UPI transaction id / UTR
+  screenshotUrl: { type: String, default: "" }, // payment proof screenshot
 });
 
 const walletSchema = new mongoose.Schema(

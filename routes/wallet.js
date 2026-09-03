@@ -149,9 +149,12 @@ router.get("/me", auth, async (req, res) => {
 // ── POST /api/wallet/deposit - Submit deposit request (admin must approve) ──
 router.post("/deposit", auth, async (req, res) => {
   try {
-    const { amount, reference } = req.body;
+    const { amount, reference, screenshotUrl } = req.body;
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: "Valid deposit amount required" });
+    }
+    if (!reference) {
+      return res.status(400).json({ message: "UPI Transaction ID / UTR required" });
     }
 
     let wallet = await Wallet.findOne({ customerId: req.user._id });
@@ -170,7 +173,8 @@ router.post("/deposit", auth, async (req, res) => {
       usedAmount: 0,
       benefitEnabled: true,
       status: "PENDING",
-      reference: reference || "",
+      reference: reference.trim(),
+      screenshotUrl: screenshotUrl || "",
     });
 
     await wallet.save();
@@ -202,6 +206,7 @@ router.get("/requests", auth, adminOnly, async (req, res) => {
             accountNumber: wallet.accountNumber,
             amount: dep.originalAmount,
             reference: dep.reference || "",
+            screenshotUrl: dep.screenshotUrl || "",
             submittedAt: dep.submittedAt || dep.depositDate,
           });
         });
