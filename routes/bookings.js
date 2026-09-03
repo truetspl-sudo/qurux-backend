@@ -141,7 +141,7 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
 // PATCH /api/bookings/:id/close - Admin closure with rating
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, customerRemarks, rating } = req.body;
+    const { adminRemarks, customerRemarks, rating, paymentStatus, cashAmount, paymentMethod } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
@@ -153,7 +153,19 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
     booking.adminRemarks = adminRemarks || "";
     booking.customerRemarks = customerRemarks || "";
     booking.rating = Math.min(5, Math.max(0, Number(rating) || 0));
-    booking.paymentStatus = "PAID";
+
+    // RULE: payment update closure ke waqt admin karta hai.
+    // Default: service done = payment PAID. Admin cash/UPI amount bhi set kar sakta hai.
+    booking.paymentStatus =
+      paymentStatus && ["PAID", "PENDING", "PARTIAL", "REFUNDED"].includes(paymentStatus)
+        ? paymentStatus
+        : "PAID";
+    if (paymentMethod && ["FULL", "EMI", "BOB", "MIXED", "UPI", "CASH"].includes(paymentMethod)) {
+      booking.paymentMethod = paymentMethod === "UPI" || paymentMethod === "CASH" ? "FULL" : paymentMethod;
+    }
+    if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
+      booking.cashAmount = Number(cashAmount);
+    }
     await booking.save();
 
     // Also create a Rating record for the ratings collection

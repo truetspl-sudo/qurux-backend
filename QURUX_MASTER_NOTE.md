@@ -76,6 +76,17 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
 6. **Never silently invent fake/demo data** in admin pages. If API returns
    empty or 401, show empty state + clear "login as Admin required" banner.
 
+7. **SERVICE FULL PAYMENT = PAY AFTER SERVICE (booking rule).**
+   - Customer selects "Full Payment" for a SERVICE booking → booking is
+     created WITHOUT any payment step. No PaymentForm at booking time.
+   - Confirmation message says: "Payment service hone ke BAAD karein (UPI/Cash)."
+   - Service is delivered first. Then admin closes the service in
+     `admin/closures` — the closure modal has a **Payment Update** section
+     (PAID / PARTIAL / PENDING + amount collected) and the backend
+     `/bookings/:id/close` writes that paymentStatus + cashAmount onto the booking.
+   - Shop ORDER payments (products, delivered later) still use the manual
+     UPI-proof flow: PaymentForm → PENDING → admin approve → order PAID.
+
 ---
 
 ## 4. Data Layer (backend `routes/` + `models/`)
