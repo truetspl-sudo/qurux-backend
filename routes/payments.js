@@ -92,7 +92,11 @@ router.post("/", auth, async (req, res) => {
 router.get("/", auth, async (req, res) => {
   try {
     const filter = req.user.role === "ADMIN" ? {} : { customerId: req.user._id };
-    const payments = await Payment.find(filter).sort({ createdAt: -1 });
+    const payments = await Payment.find(filter)
+      .populate("customerId", "fullName mobile userId")
+      .populate("bookingId", "bookingId")
+      .populate("orderId", "orderId")
+      .sort({ createdAt: -1 });
     res.json(payments);
   } catch (error) {
     res.status(500).json({ message: error.message });
