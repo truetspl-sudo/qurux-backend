@@ -78,12 +78,11 @@ router.get("/:slug", async (req, res) => {
     if (!salon) return res.status(404).json({ message: "Salon not found" });
     if (salon.status !== "APPROVED") return res.status(404).json({ message: "Salon not available" });
 
-    // Services: assigned servicesIds hoti hain to wahi; warna poora catalog
+    // Services: sirf wahi services jo admin/vendor ne is salon ko assign ki hain
+    // (servicesIds). Full-catalog fallback nahi — partner salon ki apni list dikhe.
     let services = [];
     if (salon.servicesIds && salon.servicesIds.length) {
       services = await Service.find({ _id: { $in: salon.servicesIds }, isActive: true });
-    } else {
-      services = await Service.find({ isActive: true }).sort({ category: 1, name: 1 });
     }
     services = services.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 

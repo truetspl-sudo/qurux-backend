@@ -10,7 +10,20 @@ connectDB();
 const app = express();
 
 // ── Middleware ──────────────────────────────
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*", credentials: true }));
+// CORS — allow the live domain, local dev, and Vercel previews
+const CORS_ALLOWED = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+function corsOrigin(origin, cb) {
+  if (!origin) return cb(null, true); // same-origin / curl
+  if (CORS_ALLOWED.length === 0) return cb(null, true); // open
+  if (CORS_ALLOWED.includes(origin)) return cb(null, true);
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+  if (/^https?:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
+  return cb(null, false);
+}
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
