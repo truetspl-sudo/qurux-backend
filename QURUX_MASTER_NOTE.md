@@ -261,6 +261,9 @@ balance/benefit now visible to customer
 | 4–8 | Book Now flow (service → form → HOME/SALON) | ✅ |
 | 9 | Signup/Login manual (no OTP, userId) | ✅ |
 | 10 | Salon/vendor registration + admin approval | ✅ |
+| 10b | Public Partner Salon pages (/salons list + /salons/[slug]) — rating,
+  gallery, work images, Google map, reviews, Book Now w/ salon services,
+  booking = manual approval; admin salons ✏️ Manage assigns | ✅ new |
 | 11 | ESSN Shop | ✅ |
 | 12 | Learn/Academy | mostly ✅ (purchase flow check) |
 | 13 | Universal checkout (Full/EMI/BOB/Mixed) | FULL ✅ — EMI/BOB/Mixed partial |
@@ -289,7 +292,11 @@ balance/benefit now visible to customer
    COURSE purchaseType ke saath wahi 25/75 EMI plan banayega.
 2. Mixed/Split payment logic in checkout is placeholder (₹0 hardcoded).
 3. Course customer purchase/enrollment full flow not yet verified E2E.
-4. Salon public registration page exists (`/salon/register`) — verify wiring.
+4. Salon public pages `/salons` + `/salons/[slug]` LIVE (list w/ star rating -
+   naam - location; detail: gallery, work images, address + Google map embed,
+   reviews, BOOK NOW → us salon ki services → booking request = manual
+   approval). Salon images/map/services admin "✏️ Manage Salon Page" se set
+   hote hain. Registration page `/salon/register` bhi hai.
 5. `admin/content` (Website Content) and most of `admin/settings` are static —
    only Change Password is DB-backed.
 6. WhatsApp "SENT" state is derived from bookings (resets) — fine for manual use.

@@ -230,6 +230,27 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
         },
         { upsert: true, new: true }
       );
+
+      // Salon ko bhi star rating milta hai (manual closure flow) — salon page
+      // reviews/rating isi se banti hai
+      if (booking.salonId) {
+        await Rating.findOneAndUpdate(
+          { targetType: "SALON", targetId: booking.salonId, bookingId: booking._id },
+          {
+            customerId: booking.customerId,
+            customerName: booking.customerName,
+            targetType: "SALON",
+            targetId: booking.salonId,
+            targetName: booking.salonName || "Salon",
+            bookingId: booking._id,
+            stars: booking.rating,
+            customerRemarks: booking.customerRemarks || "",
+            adminRemarks: booking.adminRemarks || "",
+            isAdminClosed: true,
+          },
+          { upsert: true, new: true }
+        );
+      }
     }
 
     res.json({ message: "Booking closed with rating", booking });
