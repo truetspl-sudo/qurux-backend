@@ -51,7 +51,7 @@ const salonSchema = new mongoose.Schema(
 
 salonSchema.index({ status: 1 });
 salonSchema.index({ city: 1 });
-salonSchema.index({ slug: 1 });
+// slug unique index already declared on the field (no duplicate schema.index here)
 
 // Slug apne aap name+city se banao (salon page URL ke liye)
 salonSchema.pre("save", function (next) {

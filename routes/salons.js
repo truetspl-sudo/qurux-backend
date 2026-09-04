@@ -51,6 +51,16 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /api/salons/all - Admin (must come BEFORE /:slug so it isn't swallowed)
+router.get("/all", auth, adminOnly, async (req, res) => {
+  try {
+    const salons = await Salon.find().sort({ createdAt: -1 });
+    res.json(salons);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // GET /api/salons/:slug - Public salon detail + services + reviews
 router.get("/:slug", async (req, res) => {
   try {
@@ -91,16 +101,6 @@ router.get("/:slug", async (req, res) => {
       reviews,
       usingFullCatalog: !(salon.servicesIds && salon.servicesIds.length),
     });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// GET /api/salons/all - Admin
-router.get("/all", auth, adminOnly, async (req, res) => {
-  try {
-    const salons = await Salon.find().sort({ createdAt: -1 });
-    res.json(salons);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
