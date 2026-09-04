@@ -28,6 +28,7 @@ app.use("/api/payments", require("./routes/payments"));
 app.use("/api/emi", require("./routes/emi"));
 app.use("/api/wallet", require("./routes/wallet"));
 app.use("/api/ratings", require("./routes/ratings"));
+app.use("/api/password-resets", require("./routes/password-resets"));
 app.use("/api/whatsapp", require("./routes/whatsapp"));
 app.use("/api/admin", require("./routes/admin"));
 

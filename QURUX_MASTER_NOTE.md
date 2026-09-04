@@ -129,6 +129,18 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
 10. **COMPANY UPI BARCODE = `public/payment/quruxbarcode.png`** (original from
     `Desktop/final`). Used in BOB deposit form, BOB EMI pay modal, and
     PaymentForm QR. Deposit proof = transaction ID + screenshot upload.
+    UPI ID = **`8130231520@hdfc`** (kabhi `qurux@upi` nahi).
+
+11. **PASSWORD RESET = ADMIN APPROVAL (koi current password nahi).**
+    - Customer ko apna current/pura password dene ki zaroorat NAHI.
+    - Wo "Forgot Password" karta hai: User ID + naya password →
+      `POST /api/auth/forgot-password` → `PasswordReset` doc status PENDING
+      (sirf naya hash store hota hai).
+    - Admin dashboard `/admin/password-resets` pe request dikhti hai →
+      WhatsApp pe verify karke APPROVE/REJECT.
+    - Approve par user ka password replace ho jata hai (`User.updateOne` —
+      pre-save hash hook bypass kyunki hash already store hai); customer phir
+      naye password se login karta hai.
 
 ---
 
@@ -145,6 +157,7 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
 | Order | shop orders (items resolved from Product by _id or slug) |
 | Payment | UPI proof submissions: bookingId/orderId refs, PENDING → APPROVED/REJECTED |
 | EMIPlan | No-Cost EMI plans + flexible repayment history |
+| PasswordReset | password reset requests (PENDING → admin approve/reject) — sirf naya hash store |
 | Wallet | **BOB wallet**: deposits[], usageHistory[], promotionalBalance/history |
 | Rating | ratings/reviews captured at admin closure |
 | WhatsAppDispatch | (exists; UI derives dispatch list from live bookings) |
@@ -218,7 +231,9 @@ balance/benefit now visible to customer
   with orderId → admin Payments approve → order PAID.** 9 products seeded in DB.
 - Academy/learn page + course admin management.
 - Signup (no email) → admin approve w/ manual userId → login by userId+password.
-- Change password (admin settings + customer account) — live tested.
+- Change password (admin settings real) — live tested. Customer password
+  change ab "Forgot Password" reset request se hota hai (no current password)
+  → admin /admin/password-resets approve — live tested.
 - Customer dashboard (`/account/dashboard`) — real API: bookings, orders,
   payments, BOB wallet, EMI, reviews.
 - **BOB wallet customer page + manual deposit approval — live tested.**

@@ -1,5 +1,7 @@
 const router = require("express").Router();
+const bcrypt = require("bcryptjs");
 const User = require("../models/User");
+const PasswordReset = require("../models/PasswordReset");
 const { generateToken, auth } = require("../middleware/auth");
 
 // POST /api/auth/register
@@ -62,6 +64,58 @@ router.post("/login", async (req, res) => {
       message: "Login successful",
       token,
       user,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST /api/auth/forgot-password — RULE: customer ko current/pura password
+// dene ki zaroorat NAHI. User ID + naya password → PENDING reset request banti
+// hai jo admin dashboard (/admin/password-resets) pe approve/reject karta hai.
+// Approve hone ke baad hi naya password active hota hai.
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { userId, newPassword } = req.body;
+    if (!userId || !newPassword) {
+      return res.status(400).json({ message: "User ID aur naya password dono chahiye" });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: "Naya password kam se kam 6 characters ka hona chahiye" });
+    }
+
+    const user = await User.findOne({ userId: String(userId).trim().toUpperCase() });
+    if (!user) {
+      return res.status(404).json({ message: "Ye User ID exist nahi karta" });
+    }
+    if (user.status !== "APPROVED") {
+      return res.status(403).json({ message: "Account abhi approved nahi hai — pehle admin approval ka wait karein" });
+    }
+
+    // Naya password purane jaisa ho to mat bhejo
+    const same = await bcrypt.compare(String(newPassword), user.password);
+    if (same) {
+      return res.status(400).json({ message: "Naya password purane password jaisa nahi ho sakta" });
+    }
+
+    // Ek waqt me sirf ek PENDING request per user
+    const pending = await PasswordReset.findOne({ userIdRef: user._id, status: "PENDING" });
+    if (pending) {
+      return res.status(400).json({ message: "Password reset request already pending hai — admin approve karega" });
+    }
+
+    const hash = await bcrypt.hash(String(newPassword), 12);
+    await PasswordReset.create({
+      userIdRef: user._id,
+      userId: user.userId,
+      fullName: user.fullName,
+      mobile: user.mobile,
+      newPasswordHash: hash,
+    });
+
+    res.json({
+      message:
+        "Password reset request bhej di gayi! Admin dashboard pe request dikhegi — admin approve karega, phir aap naye password se login kar sakenge.",
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
