@@ -171,19 +171,35 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
     if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
       booking.cashAmount = Number(cashAmount);
     }
+
+    // RULE (25/75 EMI — master note): EMI mode (ya booking EMI se chuni gayi
+    // thi) me close karne par customer ko bill ka MINIMUM 25% abhi pay karna
+    // hota hai. Baaki 75% tak EMI balance banta hai jo customer weekly / jab
+    // jitna paisa ho flexible repayments me bhar sakta hai (/emi/:id/pay →
+    // admin approve). Bina 25% ke EMI close ALLOWED NAHI.
+    const emiPath =
+      booking.paidVia === "EMI" ||
+      booking.paymentMethod === "EMI" ||
+      booking.paymentMethod === "MIXED";
+    const totalBill = Math.max(0, Number(booking.amount) || 0);
+    const minDown = Math.ceil(totalBill * 0.25);
+    const paidAlready = Math.min(totalBill, Math.max(0, Number(booking.bobPaidAmount) || 0));
+    const collectedNow = Math.min(
+      Math.max(0, Number(booking.cashAmount) || 0),
+      totalBill - paidAlready
+    );
+    if (emiPath && totalBill > 0) {
+      const totalPaid = paidAlready + collectedNow;
+      if (totalPaid < minDown) {
+        return res.status(400).json({
+          message: `EMI option pe minimum 25% (₹${minDown}) payment abhi karna hoga — baaki 75% EMI balance banega jo customer flexible repayments me dega.`,
+        });
+      }
+    }
     await booking.save();
 
-    // RULE (closure payment mode):
-    // - FULL (CASH/UPI/BOB full) → booking PAID, customer ka due ₹0.
-    // - EMI mode (ya booking EMI se chuni gayi thi) → customer ke liye EMIPlan
-    //   apne aap banta hai (service naam, total, paid, pending balance) jo
-    //   customer ke "EMI Details" me dikhta hai. Balance flexible EMI
-    //   repayments se ghatta hai (/emi/:id/pay → admin approve).
-    if (
-      paidVia === "EMI" ||
-      booking.paymentMethod === "EMI" ||
-      booking.paymentMethod === "MIXED"
-    ) {
+    // EMI plan auto-create (balance = total − paid, max 75%)
+    if (emiPath) {
       const { pending } = await syncEMIPlanFromPayment({
         refType: "booking",
         doc: booking,
@@ -191,7 +207,7 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
         purchaseName: booking.serviceName || "Qurux Service",
         collectedAmount: booking.cashAmount,
       });
-      booking.emiAmount = pending; // balance abhi EMI pe hai
+      booking.emiAmount = pending; // balance abhi EMI pe hai (75% tak)
       booking.paymentStatus = pending > 0 ? "PARTIAL" : "PAID";
       await booking.save();
     }

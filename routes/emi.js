@@ -90,8 +90,8 @@ router.post("/:id/pay", auth, async (req, res) => {
   try {
     const { amount, transactionId, screenshotUrl } = req.body;
 
-    if (!amount || amount < 10) {
-      return res.status(400).json({ message: "Minimum payment is ₹10" });
+    if (!amount || amount < 1) {
+      return res.status(400).json({ message: "Minimum payment is ₹1 — customer jitna bhi bhar sake" });
     }
 
     const plan = await EMIPlan.findById(req.params.id);

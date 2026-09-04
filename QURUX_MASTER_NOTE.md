@@ -50,7 +50,9 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
    - Do NOT make deposits auto-ACTIVE. Do NOT remove the PENDING step.
 
 2. **NO PAYMENT GATEWAY ANYWHERE. EVERYTHING IS MANUAL.**
-   - Customer pays via UPI to the business account (QR / `qurux@upi`),
+   - Customer pays via UPI to the business account — UPI ID
+     **`8130231520@hdfc`** (QURUX MAKEOVER AND ACADEMY OPC PVT LTD — barcode
+     `public/payment/quruxbarcode.png` pe yahi hai; kabhi `qurux@upi` NAHI),
      then submits transaction ID + optional screenshot as a **Payment record
      (status PENDING)**.
    - Admin verifies in his bank app / WhatsApp, then clicks APPROVE in the
@@ -98,6 +100,12 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
      approve) se ghatta hai; plan COMPLETED hone par booking apne aap PAID
      (due ₹0). FULL/CASH/UPI/BOB full close → koi plan nahi, booking PAID,
      due ₹0.
+   - **25/75 EMI RULE (HARD).** EMI mode me close/pay tabhi allowed hai jab
+     customer ne bill ka **minimum 25% abhi** diya ho (backend 400 returns
+     warna, frontend modal bhi enforce karta hai). Baaki **75% tak EMI
+     balance** banta hai. EMI repayment min = **₹1** — customer weekly jab
+     jitna paisa ho koi bhi amount bhar sakta hai (`/emi/:id/pay`, min ₹1,
+     max pending).
 
 8. **PRODUCTS / COURSES ORDERS = SAME MANUAL MODEL AS SERVICE BOOKINGS.**
    - Shop checkout `/checkout` and any course order: customer just submits the
@@ -110,7 +118,8 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
    - **EMI order → EMIPlan AUTO-CREATE (PRODUCT).** Same rule as bookings:
      EMI mode pay/close pe product plan banta hai (purchaseName = items list,
      total/paid/balance) jo customer ke EMI details me dikhta hai; full pay →
-     due ₹0.
+     due ₹0. Same **25/75 rule** (25% down mandatory, baaki 75% EMI balance,
+     repayments min ₹1 flexible).
 
 9. **BOB HAS NO SEPARATE LOGIN.** Website login (User ID + password) IS the
    BOB login. No `bobApplications`, no separate BOB password, no
@@ -256,13 +265,13 @@ balance/benefit now visible to customer
 
 ## 8. KNOWN GAPS / NOT DONE YET
 
-1. EMI plans are now auto-created when admin CLOSES an EMI-mode booking/order
+1. EMI plans are auto-created when admin CLOSES an EMI-mode booking/order
    (closure payment section → PAID VIA = EMI) — service/product naam, total,
-   paid, balance customer ke EMI Details me dikhta hai (see rules 7/8).
-   `/emi` POST still has no standalone customer-facing trigger (not needed —
-   closure is the trigger). COURSE EMI: course purchase/enroll order flow abhi
-   bhi nahi hai (academy pages static) — jab course order flow banega to
-   `utils/emiSync.js` COURSE purchaseType ke saath EMI plan banayega.
+   25% down paid, 75% balance customer ke EMI Details me dikhta hai (rules
+   7/8). Balance flexible repayments (min ₹1) `POST /emi/:id/pay` → admin
+   approve. COURSE EMI: course purchase/enroll order flow abhi bhi nahi hai
+   (academy pages static) — jab course order flow banega to `utils/emiSync.js`
+   COURSE purchaseType ke saath wahi 25/75 EMI plan banayega.
 2. Mixed/Split payment logic in checkout is placeholder (₹0 hardcoded).
 3. Course customer purchase/enrollment full flow not yet verified E2E.
 4. Salon public registration page exists (`/salon/register`) — verify wiring.

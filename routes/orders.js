@@ -96,6 +96,25 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
     if (paidVia && ["CASH", "UPI", "BOB", "EMI"].includes(paidVia)) {
       order.paidVia = paidVia;
     }
+
+    // RULE (25/75 EMI): EMI mode me order ka payment update karne par
+    // minimum 25% down payment hona chahiye; baaki 75% EMI balance plan me.
+    const emiPath =
+      order.paidVia === "EMI" ||
+      order.paymentMethod === "EMI" ||
+      order.paymentMethod === "MIXED";
+    const totalBill = Math.max(0, Number(order.total) || 0);
+    const minDown = Math.ceil(totalBill * 0.25);
+    const paidAlready = Math.min(totalBill, Math.max(0, Number(order.bobPaidAmount) || 0));
+    const collectedNow = Math.min(
+      Math.max(0, Number(order.cashAmount) || 0),
+      totalBill - paidAlready
+    );
+    if (emiPath && totalBill > 0 && paidAlready + collectedNow < minDown) {
+      return res.status(400).json({
+        message: `EMI option pe minimum 25% (₹${minDown}) payment abhi karna hoga — baaki 75% EMI balance banega jo customer flexible repayments me dega.`,
+      });
+    }
     await order.save();
 
     // RULE (manual model, products ke liye):
@@ -103,11 +122,7 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
     // - EMI mode (ya order EMI se liya tha) → customer ke liye EMIPlan
     //   banta hai (PRODUCT naam, total, paid, pending balance) jo EMI
     //   details me dikhta hai. Balance flexible EMI repayments se ghatta hai.
-    if (
-      order.paidVia === "EMI" ||
-      order.paymentMethod === "EMI" ||
-      order.paymentMethod === "MIXED"
-    ) {
+    if (emiPath) {
       const purchaseName =
         (order.items || [])
           .map((i) => (i.quantity > 1 ? `${i.name} ×${i.quantity}` : i.name))
