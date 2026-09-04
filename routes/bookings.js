@@ -2,6 +2,7 @@ const router = require("express").Router();
 const Booking = require("../models/Booking");
 const Wallet = require("../models/Wallet");
 const { auth, adminOnly, approvedCustomer } = require("../middleware/auth");
+const { syncEMIPlanFromPayment } = require("../utils/emiSync");
 
 // Generate booking ID
 function genBookingId() {
@@ -171,6 +172,29 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       booking.cashAmount = Number(cashAmount);
     }
     await booking.save();
+
+    // RULE (closure payment mode):
+    // - FULL (CASH/UPI/BOB full) → booking PAID, customer ka due ₹0.
+    // - EMI mode (ya booking EMI se chuni gayi thi) → customer ke liye EMIPlan
+    //   apne aap banta hai (service naam, total, paid, pending balance) jo
+    //   customer ke "EMI Details" me dikhta hai. Balance flexible EMI
+    //   repayments se ghatta hai (/emi/:id/pay → admin approve).
+    if (
+      paidVia === "EMI" ||
+      booking.paymentMethod === "EMI" ||
+      booking.paymentMethod === "MIXED"
+    ) {
+      const { pending } = await syncEMIPlanFromPayment({
+        refType: "booking",
+        doc: booking,
+        purchaseType: "SERVICE",
+        purchaseName: booking.serviceName || "Qurux Service",
+        collectedAmount: booking.cashAmount,
+      });
+      booking.emiAmount = pending; // balance abhi EMI pe hai
+      booking.paymentStatus = pending > 0 ? "PARTIAL" : "PAID";
+      await booking.save();
+    }
 
     // Also create a Rating record for the ratings collection
     if (booking.rating > 0) {

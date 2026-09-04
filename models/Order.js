@@ -39,6 +39,10 @@ const orderSchema = new mongoose.Schema(
       enum: ["PENDING", "PAID", "PARTIAL", "REFUNDED"],
       default: "PENDING",
     },
+    // Manual model: admin delivery/payment update pe batata hai customer ne kis mode me pay kiya
+    paidVia: { type: String, default: "CASH" }, // CASH | UPI | BOB | EMI
+    // EMI balance (EMI mode close pe plan ke pending ke barabar)
+    emiAmount: { type: Number, default: 0 },
 
     // Status
     status: {

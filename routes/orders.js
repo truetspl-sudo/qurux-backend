@@ -2,6 +2,7 @@ const router = require("express").Router();
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const { auth, adminOnly, approvedCustomer } = require("../middleware/auth");
+const { syncEMIPlanFromPayment } = require("../utils/emiSync");
 
 function genOrderId() {
   const d = new Date();
@@ -78,7 +79,7 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
 // PATCH /api/orders/:id/pay - Admin manual payment update (after verifying on WhatsApp)
 router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
   try {
-    const { paymentStatus, cashAmount } = req.body;
+    const { paymentStatus, cashAmount, paidVia } = req.body;
     let order = null;
     try { order = await Order.findById(req.params.id); } catch {}
     if (!order) order = await Order.findOne({ orderId: req.params.id });
@@ -92,7 +93,37 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
     if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
       order.cashAmount = Number(cashAmount);
     }
+    if (paidVia && ["CASH", "UPI", "BOB", "EMI"].includes(paidVia)) {
+      order.paidVia = paidVia;
+    }
     await order.save();
+
+    // RULE (manual model, products ke liye):
+    // - FULL payment → order PAID, due ₹0.
+    // - EMI mode (ya order EMI se liya tha) → customer ke liye EMIPlan
+    //   banta hai (PRODUCT naam, total, paid, pending balance) jo EMI
+    //   details me dikhta hai. Balance flexible EMI repayments se ghatta hai.
+    if (
+      order.paidVia === "EMI" ||
+      order.paymentMethod === "EMI" ||
+      order.paymentMethod === "MIXED"
+    ) {
+      const purchaseName =
+        (order.items || [])
+          .map((i) => (i.quantity > 1 ? `${i.name} ×${i.quantity}` : i.name))
+          .join(", ") || "Qurux Products";
+      const { pending } = await syncEMIPlanFromPayment({
+        refType: "order",
+        doc: order,
+        purchaseType: "PRODUCT",
+        purchaseName,
+        collectedAmount: order.cashAmount,
+      });
+      order.emiAmount = pending;
+      order.paymentStatus = pending > 0 ? "PARTIAL" : "PAID";
+      await order.save();
+    }
+
     res.json({ message: "Order payment updated", order });
   } catch (error) {
     res.status(500).json({ message: error.message });

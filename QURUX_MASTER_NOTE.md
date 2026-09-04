@@ -88,15 +88,29 @@ MongoDB Atlas       → DATABASE  ("qurux" DB, cloud)
      **Payment Update** section: PAID VIA (mode: CASH/UPI/BOB/EMI) + PAYMENT
      STATUS (PAID/PARTIAL/PENDING) + AMOUNT COLLECTED. Backend
      `/bookings/:id/close` writes paymentStatus + cashAmount + paidVia onto the booking.
+   - **EMI closure → EMIPlan AUTO-CREATE.** When admin closes in **EMI** mode
+     (ya booking EMI se chuni gayi thi) the backend auto-creates/updates the
+     customer's EMIPlan (`utils/emiSync.js`): purchaseType SERVICE,
+     purchaseName = service naam, totalAmount, paidAmount = abhi collected,
+     pendingAmount = balance. Customer ke "EMI Details" (/account/dashboard,
+     /bob My Purchases/EMI) me dikhta hai: kaun si service li, kitna pay kiya,
+     kitna balance. Balance flexible EMI repayments (`/emi/:id/pay` → admin
+     approve) se ghatta hai; plan COMPLETED hone par booking apne aap PAID
+     (due ₹0). FULL/CASH/UPI/BOB full close → koi plan nahi, booking PAID,
+     due ₹0.
 
 8. **PRODUCTS / COURSES ORDERS = SAME MANUAL MODEL AS SERVICE BOOKINGS.**
    - Shop checkout `/checkout` and any course order: customer just submits the
      order → order created PENDING (NO auto-PAID, NO forced PaymentForm step).
      Payment proof is not collected at order time.
    - Admin verifies payment on WhatsApp and updates order payment manually in
-     `admin/orders` (Payment Update section: PAID/PARTIAL/PENDING + amount,
-     `PATCH /orders/:id/pay`) exactly like service closures, and drives order
-     status (CONFIRMED → SHIPPED → DELIVERED).
+     `admin/orders` (Payment Update section: PAID VIA mode + PAID/PARTIAL/PENDING
+     + amount, `PATCH /orders/:id/pay`) exactly like service closures, and drives
+     order status (CONFIRMED → SHIPPED → DELIVERED).
+   - **EMI order → EMIPlan AUTO-CREATE (PRODUCT).** Same rule as bookings:
+     EMI mode pay/close pe product plan banta hai (purchaseName = items list,
+     total/paid/balance) jo customer ke EMI details me dikhta hai; full pay →
+     due ₹0.
 
 9. **BOB HAS NO SEPARATE LOGIN.** Website login (User ID + password) IS the
    BOB login. No `bobApplications`, no separate BOB password, no
@@ -242,11 +256,13 @@ balance/benefit now visible to customer
 
 ## 8. KNOWN GAPS / NOT DONE YET
 
-1. `/booking` page EMI/BOB legacy localStorage code is REMOVED (rewritten) —
-   all three options now create a real PENDING booking. EMI plan creation
-   (`/emi` POST) still has no customer-facing trigger (booking records
-   paymentMethod=EMI; repayment plans/installments are created when admin
-   finalizes EMI via existing EMI admin flow).
+1. EMI plans are now auto-created when admin CLOSES an EMI-mode booking/order
+   (closure payment section → PAID VIA = EMI) — service/product naam, total,
+   paid, balance customer ke EMI Details me dikhta hai (see rules 7/8).
+   `/emi` POST still has no standalone customer-facing trigger (not needed —
+   closure is the trigger). COURSE EMI: course purchase/enroll order flow abhi
+   bhi nahi hai (academy pages static) — jab course order flow banega to
+   `utils/emiSync.js` COURSE purchaseType ke saath EMI plan banayega.
 2. Mixed/Split payment logic in checkout is placeholder (₹0 hardcoded).
 3. Course customer purchase/enrollment full flow not yet verified E2E.
 4. Salon public registration page exists (`/salon/register`) — verify wiring.

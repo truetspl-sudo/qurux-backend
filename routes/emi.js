@@ -134,6 +134,28 @@ router.patch("/:planId/approve/:paymentId", auth, adminOnly, async (req, res) =>
     plan.status = plan.pendingAmount <= 0 ? "COMPLETED" : "ACTIVE";
 
     await plan.save();
+
+    // EMI plan ka balance wahi "due" hai — linked booking/order ko sync karo:
+    // pending > 0 → PARTIAL (balance EMI pe), pending 0 → PAID (due zero).
+    try {
+      if (plan.bookingId) {
+        const Booking = require("../models/Booking");
+        await Booking.findByIdAndUpdate(plan.bookingId, {
+          emiAmount: plan.pendingAmount,
+          paymentStatus: plan.pendingAmount > 0 ? "PARTIAL" : "PAID",
+        });
+      }
+      if (plan.orderId) {
+        const Order = require("../models/Order");
+        await Order.findByIdAndUpdate(plan.orderId, {
+          emiAmount: plan.pendingAmount,
+          paymentStatus: plan.pendingAmount > 0 ? "PARTIAL" : "PAID",
+        });
+      }
+    } catch (e) {
+      // linked doc sync optional — plan hi source of truth hai
+    }
+
     res.json({ message: "EMI payment approved", plan });
   } catch (error) {
     res.status(500).json({ message: error.message });
