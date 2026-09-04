@@ -44,8 +44,28 @@ router.get("/", async (req, res) => {
     if (city) filter.city = { $regex: city, $options: "i" };
     if (search) filter.name = { $regex: search, $options: "i" };
 
-    const salons = await Salon.find(filter).sort({ name: 1 });
-    res.json(await attachRatings(salons));
+    const salons = await Salon.find(filter);
+    let list = await attachRatings(salons);
+
+    // Assigned services count per salon (cards pe dikhane ke liye)
+    list = list.map((s) => ({
+      ...s,
+      servicesCount: (s.servicesIds || []).length,
+    }));
+
+    // Sort: top-rated (5+ reviews) pehle — stars desc; uske baad new salons by name
+    list.sort((a, b) => {
+      const aRated = (a.rating?.count || 0) >= 5;
+      const bRated = (b.rating?.count || 0) >= 5;
+      if (aRated !== bRated) return aRated ? -1 : 1;
+      if (aRated && bRated) {
+        const starDiff = (b.rating?.stars || 0) - (a.rating?.stars || 0);
+        if (starDiff !== 0) return starDiff;
+      }
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+    res.json(list);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
