@@ -3,6 +3,8 @@ const Salon = require("../models/Salon");
 const Service = require("../models/Service");
 const Rating = require("../models/Rating");
 const Booking = require("../models/Booking");
+const User = require("../models/User");
+const bcrypt = require("bcryptjs");
 const { auth, adminOnly } = require("../middleware/auth");
 
 // Rating summary (stars avg + count) for salon(s)
@@ -155,14 +157,54 @@ router.patch("/:id", auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/salons/:id/approve
+// Admin manually sets the Salon Owner userId/password (or accepts auto-generated).
+// On approval a SALON_OWNER user is created + linked to the salon, so the
+// partner can log in via /salon/dashboard with userId+password.
 router.patch("/:id/approve", auth, adminOnly, async (req, res) => {
   try {
     const salon = await Salon.findById(req.params.id);
     if (!salon) return res.status(404).json({ message: "Salon not found" });
+
+    // admin may supply a userId + password; if not, generate both.
+    const { userId, password } = req.body || {};
+    const finalUserId = (userId && userId.trim())
+      ? userId.trim().toUpperCase()
+      : `SALON-${Math.floor(100000 + Math.random() * 900000)}`;
+    const finalPassword = password && password.trim() ? password : `Qurux${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // ensure userId is unique across ALL users (customer + admin + salon)
+    const taken = await User.findOne({ userId: finalUserId });
+    if (taken) {
+      return res.status(400).json({ message: `User ID ${finalUserId} already exists. Choose a different one.` });
+    }
+
+    // Create the salon-owner account
+    const owner = await User.create({
+      fullName: salon.ownerName || "Salon Owner",
+      mobile: salon.ownerMobile || "",
+      email: salon.ownerEmail || "",
+      password: await bcrypt.hash(finalPassword, 12),
+      role: "SALON_OWNER",
+      status: "APPROVED",
+      userId: finalUserId,
+      approvedAt: new Date(),
+    });
+
+    // link back
     salon.status = "APPROVED";
     salon.approvedAt = new Date();
+    salon.userId = owner._id;
     await salon.save();
-    res.json({ message: "Salon approved", salon });
+
+    res.json({
+      message: "Salon approved + partner login account created",
+      salon,
+      partnerAccount: {
+        userId: owner.userId,
+        password: finalPassword,
+        mobile: owner.mobile,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
