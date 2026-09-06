@@ -8,10 +8,13 @@ const bcrypt = require("bcryptjs");
 const { auth, adminOnly } = require("../middleware/auth");
 
 // Rating summary (stars avg + count) for salon(s)
+// RULE: public average me SIRF customer-submitted ratings count hote hain
+// (isAdminClosed: false). Admin-closure ratings sirf fallback dikhti hain
+// jab customer ne rating nahi di ho — average ko inflate nahi karte.
 async function attachRatings(salons) {
   const ids = salons.map((s) => s._id);
   const agg = await Rating.aggregate([
-    { $match: { targetType: "SALON", targetId: { $in: ids } } },
+    { $match: { targetType: "SALON", targetId: { $in: ids }, isAdminClosed: false } },
     { $group: { _id: "$targetId", avg: { $avg: "$stars" }, count: { $sum: 1 } } },
   ]);
   const map = {};
@@ -106,7 +109,7 @@ router.get("/my-salon", auth, async (req, res) => {
       { $group: { _id: null, total: { $sum: "$cashAmount" } } },
     ]);
     const ratingAgg = await Rating.aggregate([
-      { $match: { targetType: "SALON", targetId: salon._id } },
+      { $match: { targetType: "SALON", targetId: salon._id, isAdminClosed: false } },
       { $group: { _id: null, avg: { $avg: "$stars" }, count: { $sum: 1 } } },
     ]);
     res.json({
@@ -159,7 +162,7 @@ router.get("/:slug", async (req, res) => {
 
     const reviews = await Rating.find({ targetType: "SALON", targetId: salon._id }).sort({ createdAt: -1 });
     const agg = await Rating.aggregate([
-      { $match: { targetType: "SALON", targetId: salon._id } },
+      { $match: { targetType: "SALON", targetId: salon._id, isAdminClosed: false } },
       { $group: { _id: null, avg: { $avg: "$stars" }, count: { $sum: 1 } } },
     ]);
 

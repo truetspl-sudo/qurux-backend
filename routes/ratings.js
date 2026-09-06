@@ -44,7 +44,7 @@ router.post("/", auth, async (req, res) => {
     }
 
     const rating = await Rating.findOneAndUpdate(
-      { bookingId: booking._id, customerId: req.user._id },
+      { bookingId: booking._id, customerId: req.user._id, targetType: "SALON" },
       {
         customerId: req.user._id,
         customerName: req.user.fullName,

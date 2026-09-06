@@ -277,23 +277,35 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
 
       // Salon ko bhi star rating milta hai (manual closure flow) — salon page
       // reviews/rating isi se banti hai
+      // RULE: agar customer ne pehle hi rating de di hai (isAdminClosed: false)
+      // to admin-closure rating use OVERWRITE NAHI karega — customer ki rating
+      // hi show hoti hai. Admin rating sirf tab banti hai jab customer ne
+      // rating nahi di.
       if (booking.salonId) {
-        await Rating.findOneAndUpdate(
-          { targetType: "SALON", targetId: booking.salonId, bookingId: booking._id },
-          {
-            customerId: booking.customerId,
-            customerName: booking.customerName,
-            targetType: "SALON",
-            targetId: booking.salonId,
-            targetName: booking.salonName || "Salon",
-            bookingId: booking._id,
-            stars: booking.rating,
-            customerRemarks: booking.customerRemarks || "",
-            adminRemarks: booking.adminRemarks || "",
-            isAdminClosed: true,
-          },
-          { upsert: true, new: true }
-        );
+        const existingSalonRating = await Rating.findOne({
+          targetType: "SALON",
+          targetId: booking.salonId,
+          bookingId: booking._id,
+          isAdminClosed: false,
+        });
+        if (!existingSalonRating) {
+          await Rating.findOneAndUpdate(
+            { targetType: "SALON", targetId: booking.salonId, bookingId: booking._id },
+            {
+              customerId: booking.customerId,
+              customerName: booking.customerName,
+              targetType: "SALON",
+              targetId: booking.salonId,
+              targetName: booking.salonName || "Salon",
+              bookingId: booking._id,
+              stars: booking.rating,
+              customerRemarks: booking.customerRemarks || "",
+              adminRemarks: booking.adminRemarks || "",
+              isAdminClosed: true,
+            },
+            { upsert: true, new: true }
+          );
+        }
       }
     }
 
