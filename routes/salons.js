@@ -84,6 +84,54 @@ router.get("/all", auth, adminOnly, async (req, res) => {
   }
 });
 
+// GET /api/salons/my-salon - SALON_OWNER: own salon profile + stats
+// MUST be declared before /:slug so "my-salon" isn't swallowed as a slug.
+router.get("/my-salon", auth, async (req, res) => {
+  try {
+    if (req.user.role !== "SALON_OWNER") {
+      return res.status(403).json({ message: "Partner salon access required" });
+    }
+    const Rating = require("../models/Rating");
+    const salon = await Salon.findOne({ userId: req.user._id });
+    if (!salon) {
+      return res.status(404).json({ message: "Partner salon account not linked" });
+    }
+    const Service = require("../models/Service");
+    const servicesCount = salon.servicesIds?.length ?? 0;
+    const assigned = await Service.countDocuments({ _id: { $in: salon.servicesIds || [] } });
+    const bookingsCount = await Booking.countDocuments({ salonId: salon._id });
+    const completedCount = await Booking.countDocuments({ salonId: salon._id, status: "COMPLETED" });
+    const totalCollected = await Booking.aggregate([
+      { $match: { salonId: salon._id, status: "COMPLETED" } },
+      { $group: { _id: null, total: { $sum: "$cashAmount" } } },
+    ]);
+    const ratingAgg = await Rating.aggregate([
+      { $match: { targetType: "SALON", targetId: salon._id } },
+      { $group: { _id: null, avg: { $avg: "$stars" }, count: { $sum: 1 } } },
+    ]);
+    res.json({
+      salon: {
+        id: salon._id,
+        name: salon.name,
+        slug: salon.slug,
+        type: salon.type,
+        city: salon.city,
+        address: salon.address,
+        image: salon.image,
+        servicesCount: assigned,
+        bookingsCount,
+        completedCount,
+        totalCollected: totalCollected[0]?.total || 0,
+        rating: ratingAgg[0]
+          ? { stars: Math.round(ratingAgg[0].avg * 10) / 10, count: ratingAgg[0].count }
+          : { stars: 0, count: 0 },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // GET /api/salons/:slug - Public salon detail + services + reviews
 router.get("/:slug", async (req, res) => {
   try {
@@ -244,53 +292,6 @@ router.patch("/:id/reject", auth, adminOnly, async (req, res) => {
     );
     if (!salon) return res.status(404).json({ message: "Salon not found" });
     res.json({ message: "Salon rejected", salon });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// GET /api/salons/my-salon - SALON_OWNER: own salon profile + stats
-router.get("/my-salon", auth, async (req, res) => {
-  try {
-    if (req.user.role !== "SALON_OWNER") {
-      return res.status(403).json({ message: "Partner salon access required" });
-    }
-    const Rating = require("../models/Rating");
-    const salon = await Salon.findOne({ userId: req.user._id });
-    if (!salon) {
-      return res.status(404).json({ message: "Partner salon account not linked" });
-    }
-    const Service = require("../models/Service");
-    const servicesCount = salon.servicesIds?.length ?? 0;
-    const assigned = await Service.countDocuments({ _id: { $in: salon.servicesIds || [] } });
-    const bookingsCount = await Booking.countDocuments({ salonId: salon._id });
-    const completedCount = await Booking.countDocuments({ salonId: salon._id, status: "COMPLETED" });
-    const totalCollected = await Booking.aggregate([
-      { $match: { salonId: salon._id, status: "COMPLETED" } },
-      { $group: { _id: null, total: { $sum: "$cashAmount" } } },
-    ]);
-    const ratingAgg = await Rating.aggregate([
-      { $match: { targetType: "SALON", targetId: salon._id } },
-      { $group: { _id: null, avg: { $avg: "$stars" }, count: { $sum: 1 } } },
-    ]);
-    res.json({
-      salon: {
-        id: salon._id,
-        name: salon.name,
-        slug: salon.slug,
-        type: salon.type,
-        city: salon.city,
-        address: salon.address,
-        image: salon.image,
-        servicesCount: assigned,
-        bookingsCount,
-        completedCount,
-        totalCollected: totalCollected[0]?.total || 0,
-        rating: ratingAgg[0]
-          ? { stars: Math.round(ratingAgg[0].avg * 10) / 10, count: ratingAgg[0].count }
-          : { stars: 0, count: 0 },
-      },
-    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
