@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const Course = require("../models/Course");
 const { auth, adminOnly, approvedCustomer } = require("../middleware/auth");
 const { syncEMIPlanFromPayment } = require("../utils/emiSync");
 
@@ -21,37 +22,59 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       return res.status(400).json({ message: "At least one item required" });
     }
 
+    // COURSE enrollment (academy) vs PRODUCT order (shop)
+    const isCourse = items.some((i) => i.courseId);
+
     // Calculate subtotal from DB prices
     let subtotal = 0;
     const orderItems = [];
     for (const item of items) {
-      // Product can be referenced by Mongo _id or by catalog slug (e.g. essn-glow-serum)
-      let product = null;
-      try {
-        product = await Product.findById(item.productId);
-      } catch { /* not a valid ObjectId — try slug */ }
-      if (!product) product = await Product.findOne({ slug: item.productId });
-      if (!product) return res.status(400).json({ message: `Product not found: ${item.productId}` });
-      if (product.stock < (item.quantity || 1)) {
-        return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
-      }
       const qty = item.quantity || 1;
-      subtotal += product.price * qty;
-      orderItems.push({
-        productId: product._id,
-        name: product.name,
-        price: product.price,
-        quantity: qty,
-        image: product.image,
-      });
-      // Deduct stock
-      product.stock -= qty;
-      await product.save();
+      if (isCourse) {
+        // Course by Mongo _id or slug
+        let course = null;
+        try {
+          course = await Course.findById(item.courseId);
+        } catch { /* not a valid ObjectId — try slug */ }
+        if (!course) course = await Course.findOne({ slug: item.courseId });
+        if (!course) return res.status(400).json({ message: `Course not found: ${item.courseId}` });
+        subtotal += course.fee * qty;
+        orderItems.push({
+          courseId: course._id,
+          name: course.title,
+          price: course.fee,
+          quantity: qty,
+          image: course.image || "",
+        });
+      } else {
+        // Product can be referenced by Mongo _id or by catalog slug (e.g. essn-glow-serum)
+        let product = null;
+        try {
+          product = await Product.findById(item.productId);
+        } catch { /* not a valid ObjectId — try slug */ }
+        if (!product) product = await Product.findOne({ slug: item.productId });
+        if (!product) return res.status(400).json({ message: `Product not found: ${item.productId}` });
+        if (product.stock < qty) {
+          return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
+        }
+        subtotal += product.price * qty;
+        orderItems.push({
+          productId: product._id,
+          name: product.name,
+          price: product.price,
+          quantity: qty,
+          image: product.image,
+        });
+        // Deduct stock
+        product.stock -= qty;
+        await product.save();
+      }
     }
 
     const order = await Order.create({
       orderId: genOrderId(),
       customerId: req.user._id,
+      orderType: isCourse ? "COURSE" : "PRODUCT",
       items: orderItems,
       subtotal,
       shipping: 0,
@@ -126,11 +149,11 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
       const purchaseName =
         (order.items || [])
           .map((i) => (i.quantity > 1 ? `${i.name} ×${i.quantity}` : i.name))
-          .join(", ") || "Qurux Products";
+          .join(", ") || (order.orderType === "COURSE" ? "Qurux Course" : "Qurux Products");
       const { pending } = await syncEMIPlanFromPayment({
         refType: "order",
         doc: order,
-        purchaseType: "PRODUCT",
+        purchaseType: order.orderType === "COURSE" ? "COURSE" : "PRODUCT",
         purchaseName,
         collectedAmount: order.cashAmount,
       });
@@ -149,7 +172,10 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
 router.get("/", auth, async (req, res) => {
   try {
     const filter = req.user.role === "ADMIN" ? {} : { customerId: req.user._id };
-    const orders = await Order.find(filter).sort({ createdAt: -1 });
+    const orders = await Order.find(filter)
+      .sort({ createdAt: -1 })
+      .populate("items.courseId", "title level fee image")
+      .populate("items.productId", "name price image");
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -159,7 +185,9 @@ router.get("/", auth, async (req, res) => {
 // GET /api/orders/:id
 router.get("/:id", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id)
+      .populate("items.courseId", "title level fee image")
+      .populate("items.productId", "name price image");
     if (!order) return res.status(404).json({ message: "Order not found" });
     res.json(order);
   } catch (error) {

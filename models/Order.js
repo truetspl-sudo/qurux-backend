@@ -5,10 +5,18 @@ const orderSchema = new mongoose.Schema(
     orderId: { type: String, required: true, unique: true },
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 
+    // PRODUCT orders (shop) or COURSE orders (academy enrollment)
+    orderType: {
+      type: String,
+      enum: ["PRODUCT", "COURSE"],
+      default: "PRODUCT",
+    },
+
     // Items
     items: [
       {
         productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+        courseId: { type: mongoose.Schema.Types.ObjectId, ref: "Course" },
         name: String,
         price: Number,
         quantity: Number,
