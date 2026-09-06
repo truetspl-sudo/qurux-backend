@@ -57,9 +57,11 @@ const bookingSchema = new mongoose.Schema(
     // Status
     status: {
       type: String,
-      enum: ["PENDING", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
+      enum: ["PENDING", "CONFIRMED", "IN_PROGRESS", "PARTNER_COMPLETED", "COMPLETED", "CANCELLED"],
       default: "PENDING",
     },
+    // Partner salon ne service complete mark ki — admin verification pending
+    partnerCompletedAt: { type: Date },
 
     // WhatsApp
     whatsappDispatched: { type: Boolean, default: false },

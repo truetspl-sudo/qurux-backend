@@ -132,6 +132,42 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   }
 });
 
+// PATCH /api/bookings/:id/partner-complete - Partner salon marks service DONE
+// (booking status PARTNER_COMPLETED → admin closure page pe "awaiting verification" dikhti hai)
+router.patch("/:id/partner-complete", auth, async (req, res) => {
+  try {
+    let booking = null;
+    try { booking = await Booking.findById(req.params.id); } catch {}
+    if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (booking.status === "COMPLETED" || booking.status === "CANCELLED") {
+      return res.status(400).json({ message: "Ye booking already close/cancel ho chuki hai." });
+    }
+    if (booking.status === "PARTNER_COMPLETED") {
+      return res.status(400).json({ message: "Service pehle se completed mark hai — admin verification ka intezaar hai." });
+    }
+
+    if (req.user.role === "SALON_OWNER") {
+      // Partner sirf APNI salon ki booking mark kar sakta hai (isolation rule)
+      const salon = await Salon.findOne({ userId: req.user._id });
+      if (!salon || !booking.salonId || String(booking.salonId) !== String(salon._id)) {
+        return res.status(403).json({ message: "Ye booking aapke salon ki nahi hai." });
+      }
+    } else if (req.user.role !== "ADMIN") {
+      return res.status(403).json({ message: "Sirf partner salon ya admin ye action kar sakta hai." });
+    }
+
+    booking.status = "PARTNER_COMPLETED";
+    booking.partnerCompletedAt = new Date();
+    await booking.save();
+
+    res.json({ message: "Service completed mark kar di — admin verification pending.", booking });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // PATCH /api/bookings/:id/pay - Mark paid (after Payment approved manually)
 router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
   try {
