@@ -183,7 +183,8 @@ router.patch("/:id/approve", auth, adminOnly, async (req, res) => {
       fullName: salon.ownerName || "Salon Owner",
       mobile: salon.ownerMobile || "",
       email: salon.ownerEmail || "",
-      password: await bcrypt.hash(finalPassword, 12),
+      // NOTE: plain password here — User model pre('save') hook hashes it (manual bcrypt.hash here would double-hash and break login)
+      password: finalPassword,
       role: "SALON_OWNER",
       status: "APPROVED",
       userId: finalUserId,
