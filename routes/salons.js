@@ -174,22 +174,44 @@ router.patch("/:id/approve", auth, adminOnly, async (req, res) => {
 
     // ensure userId is unique across ALL users (customer + admin + salon)
     const taken = await User.findOne({ userId: finalUserId });
-    if (taken) {
+    if (taken && (!salon.userId || String(taken._id) !== String(salon.userId))) {
       return res.status(400).json({ message: `User ID ${finalUserId} already exists. Choose a different one.` });
     }
 
-    // Create the salon-owner account
-    const owner = await User.create({
-      fullName: salon.ownerName || "Salon Owner",
-      mobile: salon.ownerMobile || "",
-      email: salon.ownerEmail || "",
-      // NOTE: plain password here — User model pre('save') hook hashes it (manual bcrypt.hash here would double-hash and break login)
-      password: finalPassword,
-      role: "SALON_OWNER",
-      status: "APPROVED",
-      userId: finalUserId,
-      approvedAt: new Date(),
-    });
+    // Reuse an existing linked owner account when re-approving (or when the mobile
+    // already belongs to a SALON_OWNER), so we never crash on unique mobile.
+    let owner = salon.userId ? await User.findById(salon.userId) : null;
+    if (!owner) {
+      owner = await User.findOne({ mobile: salon.ownerMobile || "__none__" });
+      if (owner && owner.role !== "SALON_OWNER") {
+        return res.status(400).json({ message: `Mobile ${salon.ownerMobile} already belongs to a ${owner.role} account. Contact that account first.` });
+      }
+    }
+
+    if (owner) {
+      owner.fullName = salon.ownerName || owner.fullName;
+      owner.mobile = salon.ownerMobile || owner.mobile;
+      owner.email = salon.ownerEmail || owner.email;
+      owner.password = finalPassword; // pre('save') hook hashes it
+      owner.role = "SALON_OWNER";
+      owner.status = "APPROVED";
+      owner.userId = finalUserId;
+      owner.approvedAt = new Date();
+      await owner.save();
+    } else {
+      // Create the salon-owner account
+      owner = await User.create({
+        fullName: salon.ownerName || "Salon Owner",
+        mobile: salon.ownerMobile || "",
+        email: salon.ownerEmail || "",
+        // NOTE: plain password here — User model pre('save') hook hashes it (manual bcrypt.hash here would double-hash and break login)
+        password: finalPassword,
+        role: "SALON_OWNER",
+        status: "APPROVED",
+        userId: finalUserId,
+        approvedAt: new Date(),
+      });
+    }
 
     // link back
     salon.status = "APPROVED";
