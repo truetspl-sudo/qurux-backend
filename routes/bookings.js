@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const Booking = require("../models/Booking");
+const Salon = require("../models/Salon");
 const Wallet = require("../models/Wallet");
 const { auth, adminOnly, approvedCustomer } = require("../middleware/auth");
 const { syncEMIPlanFromPayment } = require("../utils/emiSync");
@@ -77,9 +78,16 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
 // GET /api/bookings - My bookings (customer) or all (admin)
 router.get("/", auth, async (req, res) => {
   try {
-    const filter = req.user.role === "ADMIN"
-      ? {}
-      : { customerId: req.user._id };
+    let filter;
+    if (req.user.role === "ADMIN") {
+      filter = {};
+    } else if (req.user.role === "SALON_OWNER") {
+      // Partner salon: sirf us salon ki bookings dikhengi — doosre salon ki nahi
+      const salon = await Salon.findOne({ userId: req.user._id });
+      filter = salon ? { salonId: salon._id } : { salonId: null };
+    } else {
+      filter = { customerId: req.user._id };
+    }
 
     const bookings = await Booking.find(filter)
       .sort({ createdAt: -1 })
