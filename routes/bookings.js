@@ -184,10 +184,13 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
   }
 });
 
-// PATCH /api/bookings/:id/close - Admin closure with rating
+// PATCH /api/bookings/:id/close - Admin closure (payment reconciliation only)
+// RULE: Admin service closure ke waqt rating/review NAHI deta — sirf payment
+// update karke close karta hai. Rating sirf customer deta hai (apne dashboard
+// se, service complete hone ke baad) aur wahi rating show hoti hai.
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, customerRemarks, rating, paymentStatus, cashAmount, paymentMethod, paidVia } = req.body;
+    const { adminRemarks, customerRemarks, paymentStatus, cashAmount, paymentMethod, paidVia } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
@@ -198,7 +201,7 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
     booking.closedAt = new Date();
     booking.adminRemarks = adminRemarks || "";
     booking.customerRemarks = customerRemarks || "";
-    booking.rating = Math.min(5, Math.max(0, Number(rating) || 0));
+    // booking.rating is NOT set by admin closure — customer rates later.
 
     // RULE: payment update closure ke waqt admin karta hai.
     // Default: service done = payment PAID. Admin cash/UPI amount bhi set kar sakta hai.
@@ -256,60 +259,11 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       await booking.save();
     }
 
-    // Also create a Rating record for the ratings collection
-    if (booking.rating > 0) {
-      const Rating = require("../models/Rating");
-      await Rating.findOneAndUpdate(
-        { bookingId: booking._id },
-        {
-          customerId: booking.customerId,
-          customerName: booking.customerName,
-          targetType: "SERVICE",
-          targetName: booking.serviceName,
-          bookingId: booking._id,
-          stars: booking.rating,
-          customerRemarks: booking.customerRemarks || "",
-          adminRemarks: booking.adminRemarks || "",
-          isAdminClosed: true,
-        },
-        { upsert: true, new: true }
-      );
+    // NO Rating record is created here — admin closure rating nahi deta.
+    // Customer apne dashboard se rate karta hai (POST /api/ratings) aur wahi
+    // rating salon/service page pe show hoti hai.
 
-      // Salon ko bhi star rating milta hai (manual closure flow) — salon page
-      // reviews/rating isi se banti hai
-      // RULE: agar customer ne pehle hi rating de di hai (isAdminClosed: false)
-      // to admin-closure rating use OVERWRITE NAHI karega — customer ki rating
-      // hi show hoti hai. Admin rating sirf tab banti hai jab customer ne
-      // rating nahi di.
-      if (booking.salonId) {
-        const existingSalonRating = await Rating.findOne({
-          targetType: "SALON",
-          targetId: booking.salonId,
-          bookingId: booking._id,
-          isAdminClosed: false,
-        });
-        if (!existingSalonRating) {
-          await Rating.findOneAndUpdate(
-            { targetType: "SALON", targetId: booking.salonId, bookingId: booking._id },
-            {
-              customerId: booking.customerId,
-              customerName: booking.customerName,
-              targetType: "SALON",
-              targetId: booking.salonId,
-              targetName: booking.salonName || "Salon",
-              bookingId: booking._id,
-              stars: booking.rating,
-              customerRemarks: booking.customerRemarks || "",
-              adminRemarks: booking.adminRemarks || "",
-              isAdminClosed: true,
-            },
-            { upsert: true, new: true }
-          );
-        }
-      }
-    }
-
-    res.json({ message: "Booking closed with rating", booking });
+    res.json({ message: "Booking closed", booking });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
