@@ -4,9 +4,11 @@ const salonSchema = new mongoose.Schema(
   {
     // Salon Details
     name: { type: String, required: true, trim: true },
+    // Salon audience — vendor registration me choose karta hai (Unisex / Women Only).
+    // Admin bhi baad me change kar sakta hai (Manage Salon / detail modal).
     type: {
       type: String,
-      enum: ["UNISEX", "WOMENS", "MENS", "HOME_STUDIO", "MAKEUP_STUDIO"],
+      enum: ["UNISEX", "WOMEN_ONLY", "WOMENS", "MENS", "HOME_STUDIO", "MAKEUP_STUDIO"],
       default: "UNISEX",
     },
     address: { type: String, required: true },
