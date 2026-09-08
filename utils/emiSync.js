@@ -16,9 +16,17 @@ async function syncEMIPlanFromPayment({
   purchaseType, // "SERVICE" | "PRODUCT" | "COURSE"
   purchaseName,
   collectedAmount, // admin ne abhi kitna cash/UPI liya (closure/pay time)
+  totalOverride, // optional: final price (booking closure pe price change ho sakta hai)
+  bobOverride, // optional: total BOB wallet used (closure pe wallet settlement)
 }) {
-  const totalAmount = Math.max(0, Number(doc.amount ?? doc.total ?? 0) || 0);
-  const bobAlready = Math.min(totalAmount, Math.max(0, Number(doc.bobPaidAmount) || 0));
+  const totalAmount = Math.max(
+    0,
+    Number(totalOverride ?? doc.amount ?? doc.total ?? 0) || 0
+  );
+  const bobAlready = Math.min(
+    totalAmount,
+    Math.max(0, Number(bobOverride ?? doc.bobPaidAmount) || 0)
+  );
   const collected = Math.min(
     Math.max(0, totalAmount - bobAlready),
     Math.max(0, Number(collectedAmount) || 0)

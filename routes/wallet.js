@@ -332,6 +332,20 @@ router.post("/use", auth, async (req, res) => {
   }
 });
 
+// ── GET /api/wallet/lookup/:customerId - Admin: closure pe customer ka BOB balance dekhne ke liye ──
+router.get("/lookup/:customerId", auth, adminOnly, async (req, res) => {
+  try {
+    const wallet = await Wallet.findOne({ customerId: req.params.customerId });
+    if (!wallet) {
+      return res.status(404).json({ message: "Customer ka BOB wallet nahi bana hai." });
+    }
+    const summary = calcSummary(wallet);
+    res.json({ wallet, summary });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ── POST /api/wallet/promotional - Admin credit promotional balance ──
 router.post("/promotional", auth, adminOnly, async (req, res) => {
   try {
