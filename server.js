@@ -44,6 +44,7 @@ app.use("/api/ratings", require("./routes/ratings"));
 app.use("/api/password-resets", require("./routes/password-resets"));
 app.use("/api/whatsapp", require("./routes/whatsapp"));
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/payouts", require("./routes/payouts"));
 
 // ── Health check ───────────────────────────
 app.get("/api/health", (req, res) => {

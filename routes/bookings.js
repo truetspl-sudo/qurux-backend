@@ -223,6 +223,25 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
 //  • Admin close ke waqt rating/review NAHI deta — sirf payment update.
 //  • Final price: booking.amount (listed) default; admin closure pe finalPrice
 //    de sakta hai agar service ke baad price change hua (listing vs final).
+// PATCH /api/bookings/:id/reopen - Admin reopens a closed booking for payment edit
+router.patch("/:id/reopen", auth, adminOnly, async (req, res) => {
+  try {
+    let booking = null;
+    try { booking = await Booking.findById(req.params.id); } catch {}
+    if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (booking.status !== "COMPLETED") {
+      return res.status(400).json({ message: "Sirf closed bookings reopen ho sakte hain." });
+    }
+    booking.status = "ADMIN_VERIFIED";
+    booking.closedAt = undefined;
+    await booking.save();
+    res.json({ message: "Booking reopened for payment edit.", booking });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 //  • BOB wallet settlement: walletAmount closure pe customer ke BOB wallet se
 //    FIFO deduct hota hai + walletTransactionId record hota hai.
 //  • EMI 25/75: EMI remainder pe minimum 25% abhi; baaki EMI plan.
@@ -248,6 +267,12 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
         ? Math.max(0, Number(finalPrice) || 0)
         : Math.max(0, Number(booking.finalPrice || booking.amount || 0));
     if (bill <= 0) return res.status(400).json({ message: "Final price ₹0 se badi honi chahiye." });
+    // Sanity: final price listed price se 2x se zyada nahi hona chahiye (admin typo guard)
+    if (listed > 0 && bill > listed * 2) {
+      return res.status(400).json({
+        message: `Final price ₹${bill.toLocaleString("en-IN")} listed price ₹${listed.toLocaleString("en-IN")} se 2x se zyada hai — please check.`,
+      });
+    }
 
     const emiPath = paidVia === "EMI" || booking.paymentMethod === "EMI" || booking.paymentMethod === "MIXED";
     const collectedInput = Math.max(0, Number(cashAmount) || 0);
@@ -325,6 +350,36 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
     }
 
     await booking.save();
+
+    // ── Auto-create Payout record (admin sets salon share later) ──
+    if (booking.salonId) {
+      try {
+        const Payout = require("../models/Payout");
+        const existingPayout = await Payout.findOne({ bookingId: booking._id });
+        if (!existingPayout) {
+          await Payout.create({
+            salonId: booking.salonId,
+            salonName: booking.salonName || "",
+            bookingId: booking._id,
+            bookingCode: booking.bookingId,
+            customerId: booking.customerId,
+            customerName: booking.customerName || "",
+            serviceName: booking.serviceName || "",
+            finalPrice: bill,
+            cashCollected: booking.cashAmount || 0,
+            bobWalletUsed: bobTotal,
+            emiPending: pending || 0,
+            salonShare: 0, // admin manually sets this
+            commissionRate: 0,
+            status: "PENDING",
+            closedAt: new Date(),
+          });
+        }
+      } catch (payoutErr) {
+        // Payout creation fail ho to booking close roko nahi — log karo
+        console.error("[PAYOUT AUTO-CREATE FAIL]", payoutErr.message);
+      }
+    }
 
     const dueAmount = Math.max(0, bill - totalPaid);
     res.json({
