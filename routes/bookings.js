@@ -248,7 +248,7 @@ router.patch("/:id/reopen", auth, adminOnly, async (req, res) => {
 //  • Overpay / negative due allowed nahi — totalPaid ≤ finalPrice.
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, paymentStatus, cashAmount, paidVia, finalPrice, walletAmount, paymentCollectionMethod, vendorDirectAmount } = req.body;
+    const { adminRemarks, paymentStatus, cashAmount, paidVia, finalPrice, walletAmount, paymentCollectionMethod, vendorDirectAmount, gstSlab } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
@@ -349,12 +349,17 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       booking.emiAmount = 0;
     }
 
-    // ── Vendor Payout Calculation ──
-    // GST: 18% on finalPrice, Commission: 10% on (finalPrice + GST)
-    const gstAmount = Math.round(bill * 0.18);
-    const amountWithGST = bill + gstAmount;
-    const platformCommission = Math.round(amountWithGST * 0.10);
-    const vendorGross = amountWithGST - platformCommission;
+    // ── Vendor Payout Calculation (Tax-Inclusive) ──
+    // Final price is tax-inclusive: base = price / (1 + gstRate/100)
+    const gstRate = [0, 5, 12, 18, 28].includes(Number(gstSlab)) ? Number(gstSlab) : 18;
+    const divisor = 1 + gstRate / 100;
+    const basePrice = Math.round(bill / divisor * 100) / 100;
+    const gstAmount = Math.round((bill - basePrice) * 100) / 100;
+    const cgst = Math.round(gstAmount / 2 * 100) / 100;
+    const sgst = Math.round((gstAmount - cgst) * 100) / 100;
+    // Commission: 10% of final price (tax-inclusive)
+    const platformCommission = Math.round(bill * 0.10);
+    const vendorGross = bill - platformCommission;
     // Direct payment to vendor deduction
     const vendorDirect = Math.max(0, Number(vendorDirectAmount) || 0);
     const vendorNet = Math.max(0, vendorGross - vendorDirect);
@@ -368,7 +373,11 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
     booking.paymentCollectionMethod = collectionMethod;
     booking.vendorDirectAmount = vendorDirect;
     booking.companyCollectedAmount = Math.max(0, companyCollected);
+    booking.gstSlab = gstRate;
+    booking.basePrice = basePrice;
     booking.gstAmount = gstAmount;
+    booking.cgst = cgst;
+    booking.sgst = sgst;
     booking.platformCommission = platformCommission;
     booking.vendorGrossPayout = vendorGross;
     booking.vendorNetPayout = vendorNet;
@@ -396,8 +405,11 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
             vendorDirectAmount: vendorDirect,
             bobWalletUsed: bobTotal,
             emiPending: pending || 0,
-            gstRate: 18,
+            gstSlab: gstRate,
+            basePrice,
             gstAmount,
+            cgst,
+            sgst,
             commissionRate: 10,
             platformCommission,
             vendorGrossPayout: vendorGross,
@@ -418,7 +430,11 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       settlement: {
         listedPrice: listed,
         finalPrice: bill,
+        gstSlab: gstRate,
+        basePrice,
         gstAmount,
+        cgst,
+        sgst,
         platformCommission,
         vendorGrossPayout: vendorGross,
         vendorNetPayout: vendorNet,
@@ -434,6 +450,100 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
         walletTransactionId: booking.walletTransactionId,
       },
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── GET /api/bookings/:id/invoice — Generate invoice data for PDF ──
+router.get("/:id/invoice", auth, async (req, res) => {
+  try {
+    let booking = null;
+    try { booking = await Booking.findById(req.params.id); } catch {}
+    if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (booking.status !== "COMPLETED") {
+      return res.status(400).json({ message: "Invoice sirf closed bookings ke liye available hai." });
+    }
+
+    const bill = booking.finalPrice || booking.amount || 0;
+    const gstSlab = booking.gstSlab || 18;
+    const basePrice = booking.basePrice || Math.round(bill / (1 + gstSlab / 100) * 100) / 100;
+    const gstAmount = booking.gstAmount || Math.round((bill - basePrice) * 100) / 100;
+    const cgst = booking.cgst || Math.round(gstAmount / 2 * 100) / 100;
+    const sgst = booking.sgst || Math.round((gstAmount - cgst) * 100) / 100;
+    const commission = booking.platformCommission || Math.round(bill * 0.10);
+    const vendorGross = bill - commission;
+    const vendorDirect = booking.vendorDirectAmount || 0;
+    const vendorNet = Math.max(0, vendorGross - vendorDirect);
+    const totalUpfront = (booking.bobPaidAmount || 0) + (booking.cashAmount || 0);
+    const emiBalance = Math.max(0, bill - totalUpfront);
+
+    const invoice = {
+      invoiceNumber: `INV-${booking.bookingId}`,
+      invoiceDate: booking.closedAt || new Date(),
+      bookingId: booking.bookingId,
+      // Customer
+      customer: {
+        name: booking.customerName,
+        phone: booking.customerPhone,
+        email: booking.customerEmail || "",
+      },
+      // Service
+      service: {
+        name: booking.serviceName,
+        category: booking.serviceCategory || "",
+        date: booking.date,
+        timeSlot: booking.timeSlot,
+        location: booking.serviceLocation === "HOME" ? booking.address : (booking.salonName || "Salon"),
+      },
+      // Financial
+      financial: {
+        basePrice,
+        gstSlab,
+        gstAmount,
+        cgst,
+        sgst,
+        totalBilled: bill,
+      },
+      // Payments
+      payments: {
+        bobWalletUsed: booking.bobPaidAmount || 0,
+        cashCollected: booking.cashAmount || 0,
+        totalUpfront,
+        emiBalance,
+        paymentStatus: booking.paymentStatus,
+        paidVia: booking.paidVia || "",
+      },
+      // EMI Terms (if applicable)
+      emiTerms: emiBalance > 0 ? {
+        tenureMonths: 6,
+        interestRate: 0,
+        lateFeePerDay: 10,
+        lateFeeStartDay: 180,
+        conditions: [
+          "Maximum 6 months repayment window.",
+          "No fixed monthly instalment — pay any amount, anytime.",
+          "Zero interest during 6-month window.",
+          "After 6 months: ₹10/day late fee until fully cleared.",
+        ],
+      } : null,
+      // Vendor
+      vendor: booking.salonName ? {
+        salonName: booking.salonName,
+        grossPayout: vendorGross,
+        directCollected: vendorDirect,
+        netPayout: vendorNet,
+      } : null,
+      // Company
+      company: {
+        name: "QURUX Makeover & Academy",
+        gst: "",
+        phone: "+91 9911227916",
+      },
+    };
+
+    res.json({ data: invoice });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -79,8 +79,12 @@ const bookingSchema = new mongoose.Schema(
     }, // COMPANY = paid to Qurux, VENDOR_DIRECT = paid to vendor, SPLIT = split
     vendorDirectAmount: { type: Number, default: 0 }, // customer ne vendor ko seedha diya
     companyCollectedAmount: { type: Number, default: 0 }, // customer ne company ko diya
-    gstAmount: { type: Number, default: 0 }, // 18% GST on finalPrice
-    platformCommission: { type: Number, default: 0 }, // 10% of (finalPrice + GST)
+    gstSlab: { type: Number, default: 18 }, // 0, 5, 12, 18, 28
+    gstAmount: { type: Number, default: 0 }, // total GST (price - base)
+    cgst: { type: Number, default: 0 }, // 50% of GST
+    sgst: { type: Number, default: 0 }, // 50% of GST
+    basePrice: { type: Number, default: 0 }, // price without GST
+    platformCommission: { type: Number, default: 0 }, // 10% of finalPrice
     vendorGrossPayout: { type: Number, default: 0 }, // finalPrice + GST - commission
     vendorNetPayout: { type: Number, default: 0 }, // gross - vendorDirectAmount
 

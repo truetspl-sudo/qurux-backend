@@ -36,11 +36,15 @@ const payoutSchema = new mongoose.Schema({
   bobWalletUsed: { type: Number, default: 0 },
   emiPending: { type: Number, default: 0 },
 
-  // GST + Commission calculation
-  gstRate: { type: Number, default: 18 }, // 18% GST
-  gstAmount: { type: Number, default: 0 }, // finalPrice * 18%
+  // GST (tax-inclusive)
+  gstSlab: { type: Number, default: 18 }, // 0, 5, 12, 18, 28
+  basePrice: { type: Number, default: 0 }, // price without GST
+  gstAmount: { type: Number, default: 0 }, // total GST
+  cgst: { type: Number, default: 0 }, // 50% of GST
+  sgst: { type: Number, default: 0 }, // 50% of GST
+  // Commission
   commissionRate: { type: Number, default: 10 }, // 10% platform commission
-  platformCommission: { type: Number, default: 0 }, // (finalPrice + GST) * 10%
+  platformCommission: { type: Number, default: 0 }, // 10% of finalPrice
 
   // Vendor payout calculation
   vendorGrossPayout: { type: Number, default: 0 }, // finalPrice + GST - commission

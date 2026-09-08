@@ -39,6 +39,12 @@ const emiPlanSchema = new mongoose.Schema(
       enum: ["ACTIVE", "COMPLETED", "CANCELLED"],
       default: "ACTIVE",
     },
+
+    // Late fee (₹10/day after 6 months = 180 days)
+    tenureDays: { type: Number, default: 180 }, // 6 months window
+    lateFeePerDay: { type: Number, default: 10 }, // ₹10/day after tenure
+    totalLateFee: { type: Number, default: 0 }, // accumulated late fee
+    lastLateFeeCalc: { type: Date }, // when late fee was last calculated
   },
   { timestamps: true }
 );
