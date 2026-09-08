@@ -37,7 +37,10 @@ const bookingSchema = new mongoose.Schema(
     customerEmail: { type: String, default: "" },
 
     // Payment
-    amount: { type: Number, required: true },
+    amount: { type: Number, required: true }, // listed / original price (booking time)
+    listedPrice: { type: Number, default: 0 }, // original listed price (booking ke waqt)
+    finalPrice: { type: Number, default: 0 }, // final price — admin closure pe set hota hai (agar price change hua to); 0 = booking wala amount hi final
+    walletTransactionId: { type: String, default: "" }, // BOB wallet deduction transaction id (closure pe)
     paymentMethod: {
       type: String,
       enum: ["FULL", "EMI", "BOB", "MIXED"],
@@ -61,6 +64,7 @@ const bookingSchema = new mongoose.Schema(
       default: "PENDING",
     },
     // Partner salon ne service complete mark ki — admin verification pending
+    startedAt: { type: Date },
     partnerCompletedAt: { type: Date },
 
     // WhatsApp

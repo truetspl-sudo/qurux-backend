@@ -1,7 +1,6 @@
 const router = require("express").Router();
 const Booking = require("../models/Booking");
 const Salon = require("../models/Salon");
-const Wallet = require("../models/Wallet");
 const { auth, adminOnly, approvedCustomer } = require("../middleware/auth");
 const { syncEMIPlanFromPayment } = require("../utils/emiSync");
 
@@ -58,6 +57,7 @@ router.post("/", auth, approvedCustomer, async (req, res) => {
       customerPhone: req.user.mobile,
       customerEmail: req.user.email,
       amount,
+      listedPrice: amount,
       paymentMethod: paymentMethod || "FULL",
       bobPaidAmount: bobPaid,
       cashAmount: cashAmount || 0,
@@ -132,6 +132,40 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   }
 });
 
+// PATCH /api/bookings/:id/start - Partner starts the service (IN_PROGRESS + startedAt)
+router.patch('/:id/start', auth, async (req, res) => {
+  try {
+    let booking = null;
+    try { booking = await Booking.findById(req.params.id); } catch {}
+    if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    if (booking.status === 'COMPLETED' || booking.status === 'CANCELLED' || booking.status === 'PARTNER_COMPLETED') {
+      return res.status(400).json({ message: 'Is booking pe abhi start action nahi ho sakta.' });
+    }
+    if (booking.status === 'IN_PROGRESS') {
+      return res.status(400).json({ message: 'Service pehle se start ho chuki hai.' });
+    }
+
+    if (req.user.role === 'SALON_OWNER') {
+      const salon = await Salon.findOne({ userId: req.user._id });
+      if (!salon || !booking.salonId || String(booking.salonId) !== String(salon._id)) {
+        return res.status(403).json({ message: 'Ye booking aapke salon ki nahi hai.' });
+      }
+    } else if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Sirf partner salon ya admin ye action kar sakta hai.' });
+    }
+
+    booking.status = 'IN_PROGRESS';
+    booking.startedAt = new Date();
+    await booking.save();
+
+    res.json({ message: 'Service start ho gayi — IN_PROGRESS.', booking });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // PATCH /api/bookings/:id/partner-complete - Partner salon marks service DONE
 // (booking status PARTNER_COMPLETED → admin closure page pe "awaiting verification" dikhti hai)
 router.patch("/:id/partner-complete", auth, async (req, res) => {
@@ -185,85 +219,129 @@ router.patch("/:id/pay", auth, adminOnly, async (req, res) => {
 });
 
 // PATCH /api/bookings/:id/close - Admin closure (payment reconciliation only)
-// RULE: Admin service closure ke waqt rating/review NAHI deta — sirf payment
-// update karke close karta hai. Rating sirf customer deta hai (apne dashboard
-// se, service complete hone ke baad) aur wahi rating show hoti hai.
+// RULES:
+//  • Admin close ke waqt rating/review NAHI deta — sirf payment update.
+//  • Final price: booking.amount (listed) default; admin closure pe finalPrice
+//    de sakta hai agar service ke baad price change hua (listing vs final).
+//  • BOB wallet settlement: walletAmount closure pe customer ke BOB wallet se
+//    FIFO deduct hota hai + walletTransactionId record hota hai.
+//  • EMI 25/75: EMI remainder pe minimum 25% abhi; baaki EMI plan.
+//  • Overpay / negative due allowed nahi — totalPaid ≤ finalPrice.
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, customerRemarks, paymentStatus, cashAmount, paymentMethod, paidVia } = req.body;
+    const { adminRemarks, paymentStatus, cashAmount, paidVia, finalPrice, walletAmount } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
     if (!booking) booking = await Booking.findOne({ bookingId: req.params.id });
     if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (booking.status === "COMPLETED") {
+      return res.status(400).json({ message: "Booking pehle se CLOSED hai — duplicate closure allowed nahi." });
+    }
+    if (booking.status === "CANCELLED") {
+      return res.status(400).json({ message: "Cancelled booking close nahi kar sakte." });
+    }
 
+    const listed = Math.max(0, Number(booking.listedPrice || booking.amount || 0));
+    const bill =
+      finalPrice !== undefined && finalPrice !== null && finalPrice !== ""
+        ? Math.max(0, Number(finalPrice) || 0)
+        : Math.max(0, Number(booking.finalPrice || booking.amount || 0));
+    if (bill <= 0) return res.status(400).json({ message: "Final price ₹0 se badi honi chahiye." });
+
+    const emiPath = paidVia === "EMI" || booking.paymentMethod === "EMI" || booking.paymentMethod === "MIXED";
+    const collectedInput = Math.max(0, Number(cashAmount) || 0);
+    // Wallet use final price se zyada nahi ho sakta (zyda bheja to bill tak hi kate)
+    const walletInput = Math.min(bill, Math.max(0, Number(walletAmount) || 0));
+    const existingBob = Math.min(bill, Math.max(0, Number(booking.bobPaidAmount) || 0));
+    const bobTotal = Math.min(bill, existingBob + walletInput);
+    const cashPlanned = Math.min(bill - bobTotal, collectedInput);
+    const totalPaid = bobTotal + cashPlanned;
+
+    // Validation (wallet deduct se PEHLE — taki fail hone par wallet na kat sake)
+    if (totalPaid > bill) {
+      return res.status(400).json({ message: "Total payment final price se zyada nahi ho sakta." });
+    }
+    if (paymentStatus === "PAID" && totalPaid < bill) {
+      return res.status(400).json({
+        message: `PAID mark karne ke liye pura amount chahiye (₹${bill.toLocaleString("en-IN")}). Abhi total ₹${totalPaid.toLocaleString("en-IN")} — balance bacha hai.`,
+      });
+    }
+    const emiRemainder = Math.max(0, bill - bobTotal);
+    let pending = 0;
+    if (emiPath && emiRemainder > 0) {
+      const minDown = Math.ceil(emiRemainder * 0.25);
+      if (cashPlanned < minDown) {
+        return res.status(400).json({
+          message: `EMI option pe minimum 25% (₹${minDown}) abhi pay karna hoga (EMI remainder ₹${emiRemainder.toLocaleString("en-IN")} pe) — baaki EMI balance banega.`,
+        });
+      }
+    }
+
+    // ── BOB wallet settlement (deduction + transaction record) ──
+    if (walletInput > 0) {
+      if (booking.walletTransactionId) {
+        return res.status(400).json({ message: "Is booking pe BOB wallet settlement pehle se record ho chuka hai." });
+      }
+      const { deductWalletFIFO } = require("../utils/walletUse");
+      const result = await deductWalletFIFO(
+        booking.customerId,
+        walletInput,
+        `Service payment — ${booking.serviceName || "Qurux Service"} (${booking.bookingId})`
+      );
+      if (!result.ok) return res.status(400).json({ message: result.error });
+      booking.walletTransactionId = result.txId;
+    }
+
+    booking.listedPrice = booking.listedPrice || listed;
+    booking.finalPrice = bill;
     booking.status = "COMPLETED";
     booking.closedAt = new Date();
     booking.adminRemarks = adminRemarks || "";
-    booking.customerRemarks = customerRemarks || "";
-    // booking.rating is NOT set by admin closure — customer rates later.
-
-    // RULE: payment update closure ke waqt admin karta hai.
-    // Default: service done = payment PAID. Admin cash/UPI amount bhi set kar sakta hai.
+    booking.paidVia = paidVia && ["CASH", "UPI", "BOB", "EMI"].includes(paidVia) ? paidVia : booking.paidVia;
     booking.paymentStatus =
       paymentStatus && ["PAID", "PENDING", "PARTIAL", "REFUNDED"].includes(paymentStatus)
         ? paymentStatus
         : "PAID";
-    if (paymentMethod && ["FULL", "EMI", "BOB", "MIXED", "UPI", "CASH"].includes(paymentMethod)) {
-      booking.paymentMethod = paymentMethod === "UPI" || paymentMethod === "CASH" ? "FULL" : paymentMethod;
-    }
-    if (paidVia && ["CASH", "UPI", "BOB", "EMI"].includes(paidVia)) {
-      booking.paidVia = paidVia;
-    }
-    if (cashAmount !== undefined && !isNaN(Number(cashAmount))) {
-      booking.cashAmount = Number(cashAmount);
-    }
+    booking.bobPaidAmount = bobTotal;
+    booking.cashAmount = cashPlanned;
 
-    // RULE (25/75 EMI — master note): EMI mode (ya booking EMI se chuni gayi
-    // thi) me close karne par customer ko bill ka MINIMUM 25% abhi pay karna
-    // hota hai. Baaki 75% tak EMI balance banta hai jo customer weekly / jab
-    // jitna paisa ho flexible repayments me bhar sakta hai (/emi/:id/pay →
-    // admin approve). Bina 25% ke EMI close ALLOWED NAHI.
-    const emiPath =
-      booking.paidVia === "EMI" ||
-      booking.paymentMethod === "EMI" ||
-      booking.paymentMethod === "MIXED";
-    const totalBill = Math.max(0, Number(booking.amount) || 0);
-    const minDown = Math.ceil(totalBill * 0.25);
-    const paidAlready = Math.min(totalBill, Math.max(0, Number(booking.bobPaidAmount) || 0));
-    const collectedNow = Math.min(
-      Math.max(0, Number(booking.cashAmount) || 0),
-      totalBill - paidAlready
-    );
-    if (emiPath && totalBill > 0) {
-      const totalPaid = paidAlready + collectedNow;
-      if (totalPaid < minDown) {
-        return res.status(400).json({
-          message: `EMI option pe minimum 25% (₹${minDown}) payment abhi karna hoga — baaki 75% EMI balance banega jo customer flexible repayments me dega.`,
-        });
-      }
-    }
-    await booking.save();
-
-    // EMI plan auto-create (balance = total − paid, max 75%)
     if (emiPath) {
-      const { pending } = await syncEMIPlanFromPayment({
+      // EMI plan: wallet/BOB part settle ho chuka — EMI sirf remainder pe
+      const plan = await syncEMIPlanFromPayment({
         refType: "booking",
         doc: booking,
         purchaseType: "SERVICE",
         purchaseName: booking.serviceName || "Qurux Service",
         collectedAmount: booking.cashAmount,
+        totalOverride: emiRemainder,
+        bobOverride: 0,
       });
-      booking.emiAmount = pending; // balance abhi EMI pe hai (75% tak)
+      pending = plan.pending;
+      booking.emiAmount = pending;
       booking.paymentStatus = pending > 0 ? "PARTIAL" : "PAID";
-      await booking.save();
+    } else {
+      booking.emiAmount = 0;
     }
 
-    // NO Rating record is created here — admin closure rating nahi deta.
-    // Customer apne dashboard se rate karta hai (POST /api/ratings) aur wahi
-    // rating salon/service page pe show hoti hai.
+    await booking.save();
 
-    res.json({ message: "Booking closed", booking });
+    const dueAmount = Math.max(0, bill - totalPaid);
+    res.json({
+      message: "Booking closed",
+      booking,
+      settlement: {
+        listedPrice: listed,
+        finalPrice: bill,
+        bobWalletUsed: bobTotal,
+        cashCollected: booking.cashAmount,
+        totalPaid,
+        dueAmount,
+        emiPending: emiPath ? pending : 0,
+        paymentStatus: booking.paymentStatus,
+        walletTransactionId: booking.walletTransactionId,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
