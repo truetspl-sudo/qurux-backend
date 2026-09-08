@@ -71,6 +71,19 @@ const bookingSchema = new mongoose.Schema(
     whatsappDispatched: { type: Boolean, default: false },
     whatsappSentAt: { type: Date },
 
+    // Vendor Payout (admin closure pe auto-calculate)
+    paymentCollectionMethod: {
+      type: String,
+      enum: ["COMPANY", "VENDOR_DIRECT", "SPLIT"],
+      default: "COMPANY",
+    }, // COMPANY = paid to Qurux, VENDOR_DIRECT = paid to vendor, SPLIT = split
+    vendorDirectAmount: { type: Number, default: 0 }, // customer ne vendor ko seedha diya
+    companyCollectedAmount: { type: Number, default: 0 }, // customer ne company ko diya
+    gstAmount: { type: Number, default: 0 }, // 18% GST on finalPrice
+    platformCommission: { type: Number, default: 0 }, // 10% of (finalPrice + GST)
+    vendorGrossPayout: { type: Number, default: 0 }, // finalPrice + GST - commission
+    vendorNetPayout: { type: Number, default: 0 }, // gross - vendorDirectAmount
+
     // Admin Closure
     closedAt: { type: Date },
     adminRemarks: { type: String, default: "" },

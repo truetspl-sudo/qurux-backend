@@ -248,7 +248,7 @@ router.patch("/:id/reopen", auth, adminOnly, async (req, res) => {
 //  • Overpay / negative due allowed nahi — totalPaid ≤ finalPrice.
 router.patch("/:id/close", auth, adminOnly, async (req, res) => {
   try {
-    const { adminRemarks, paymentStatus, cashAmount, paidVia, finalPrice, walletAmount } = req.body;
+    const { adminRemarks, paymentStatus, cashAmount, paidVia, finalPrice, walletAmount, paymentCollectionMethod, vendorDirectAmount } = req.body;
     // Find by _id or bookingId string
     let booking = null;
     try { booking = await Booking.findById(req.params.id); } catch {}
@@ -349,9 +349,33 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       booking.emiAmount = 0;
     }
 
+    // ── Vendor Payout Calculation ──
+    // GST: 18% on finalPrice, Commission: 10% on (finalPrice + GST)
+    const gstAmount = Math.round(bill * 0.18);
+    const amountWithGST = bill + gstAmount;
+    const platformCommission = Math.round(amountWithGST * 0.10);
+    const vendorGross = amountWithGST - platformCommission;
+    // Direct payment to vendor deduction
+    const vendorDirect = Math.max(0, Number(vendorDirectAmount) || 0);
+    const vendorNet = Math.max(0, vendorGross - vendorDirect);
+    // Collection method
+    const collectionMethod = paymentCollectionMethod || "COMPANY";
+    let companyCollected = bill - vendorDirect;
+    if (collectionMethod === "COMPANY") companyCollected = bill;
+    if (collectionMethod === "VENDOR_DIRECT") companyCollected = 0;
+
+    // Update booking with vendor payout fields
+    booking.paymentCollectionMethod = collectionMethod;
+    booking.vendorDirectAmount = vendorDirect;
+    booking.companyCollectedAmount = Math.max(0, companyCollected);
+    booking.gstAmount = gstAmount;
+    booking.platformCommission = platformCommission;
+    booking.vendorGrossPayout = vendorGross;
+    booking.vendorNetPayout = vendorNet;
+
     await booking.save();
 
-    // ── Auto-create Payout record (admin sets salon share later) ──
+    // ── Auto-create Payout record with full financials ──
     if (booking.salonId) {
       try {
         const Payout = require("../models/Payout");
@@ -365,18 +389,24 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
             customerId: booking.customerId,
             customerName: booking.customerName || "",
             serviceName: booking.serviceName || "",
+            listedPrice: listed,
             finalPrice: bill,
-            cashCollected: booking.cashAmount || 0,
+            paymentCollectionMethod: collectionMethod,
+            companyCollectedAmount: Math.max(0, companyCollected),
+            vendorDirectAmount: vendorDirect,
             bobWalletUsed: bobTotal,
             emiPending: pending || 0,
-            salonShare: 0, // admin manually sets this
-            commissionRate: 0,
+            gstRate: 18,
+            gstAmount,
+            commissionRate: 10,
+            platformCommission,
+            vendorGrossPayout: vendorGross,
+            vendorNetPayout: vendorNet,
             status: "PENDING",
             closedAt: new Date(),
           });
         }
       } catch (payoutErr) {
-        // Payout creation fail ho to booking close roko nahi — log karo
         console.error("[PAYOUT AUTO-CREATE FAIL]", payoutErr.message);
       }
     }
@@ -388,12 +418,19 @@ router.patch("/:id/close", auth, adminOnly, async (req, res) => {
       settlement: {
         listedPrice: listed,
         finalPrice: bill,
+        gstAmount,
+        platformCommission,
+        vendorGrossPayout: vendorGross,
+        vendorNetPayout: vendorNet,
+        vendorDirectAmount: vendorDirect,
+        companyCollected: Math.max(0, companyCollected),
         bobWalletUsed: bobTotal,
         cashCollected: booking.cashAmount,
         totalPaid,
         dueAmount,
         emiPending: emiPath ? pending : 0,
         paymentStatus: booking.paymentStatus,
+        paymentCollectionMethod: collectionMethod,
         walletTransactionId: booking.walletTransactionId,
       },
     });

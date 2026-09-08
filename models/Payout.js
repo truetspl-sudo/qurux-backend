@@ -19,20 +19,37 @@ const payoutSchema = new mongoose.Schema({
   customerName: { type: String, default: "" },
   serviceName: { type: String, default: "" },
 
-  // What admin collected from customer
+  // Prices
+  listedPrice: { type: Number, default: 0 },
   finalPrice: { type: Number, default: 0 },
-  cashCollected: { type: Number, default: 0 },
+
+  // Payment collection — where did customer pay?
+  paymentCollectionMethod: {
+    type: String,
+    enum: ["COMPANY", "VENDOR_DIRECT", "SPLIT"],
+    default: "COMPANY",
+  },
+  companyCollectedAmount: { type: Number, default: 0 }, // paid to Qurux
+  vendorDirectAmount: { type: Number, default: 0 }, // paid directly to vendor
+
+  // BOB wallet
   bobWalletUsed: { type: Number, default: 0 },
   emiPending: { type: Number, default: 0 },
 
-  // Salon partner commission / share (admin sets this)
-  salonShare: { type: Number, default: 0 },
-  commissionRate: { type: Number, default: 0 }, // percentage (e.g. 20 = 20%)
+  // GST + Commission calculation
+  gstRate: { type: Number, default: 18 }, // 18% GST
+  gstAmount: { type: Number, default: 0 }, // finalPrice * 18%
+  commissionRate: { type: Number, default: 10 }, // 10% platform commission
+  platformCommission: { type: Number, default: 0 }, // (finalPrice + GST) * 10%
 
-  // Payout status
+  // Vendor payout calculation
+  vendorGrossPayout: { type: Number, default: 0 }, // finalPrice + GST - commission
+  vendorNetPayout: { type: Number, default: 0 }, // gross - vendorDirectAmount (what company owes vendor)
+
+  // Settlement
   status: {
     type: String,
-    enum: ["PENDING", "PAID", "PARTIAL"],
+    enum: ["PENDING", "SETTLED", "PAID", "PARTIAL"],
     default: "PENDING",
     index: true,
   },
@@ -40,6 +57,7 @@ const payoutSchema = new mongoose.Schema({
   paidAt: { type: Date },
   paidVia: { type: String, default: "" }, // BANK, CASH, UPI
   transactionRef: { type: String, default: "" },
+  settledMonth: { type: String, default: "" }, // "2026-09" format
 
   // Admin notes
   adminRemarks: { type: String, default: "" },
@@ -49,5 +67,6 @@ const payoutSchema = new mongoose.Schema({
 
 payoutSchema.index({ salonId: 1, status: 1 });
 payoutSchema.index({ bookingId: 1 }, { unique: true }); // one payout per booking
+payoutSchema.index({ salonId: 1, settledMonth: 1 }); // monthly settlement queries
 
 module.exports = mongoose.model("Payout", payoutSchema);
