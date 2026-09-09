@@ -20,8 +20,12 @@ const salonSchema = new mongoose.Schema(
     // Public salon page (partner/manage fields)
     slug: { type: String, lowercase: true, unique: true, sparse: true },
     images: [{ type: String }], // salon ki images (gallery)
+    frontImage: { type: String, default: "" }, // shop front photo
+    interiorImages: [{ type: String }], // shop interior photos
     workImages: [{ type: String }], // salon ka kaam / work photos
+    certificates: [{ type: String }], // certificates photos
     googleMapUrl: { type: String, default: "" }, // Google Maps link / embed
+    whatsappLink: { type: String, default: "" }, // WhatsApp chat link
     servicesIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Service" }], // is salon me available services
 
     // Owner Details
