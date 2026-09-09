@@ -67,7 +67,7 @@ router.post("/", auth, async (req, res) => {
 router.get("/", auth, async (req, res) => {
   try {
     const filter = req.user.role === "ADMIN" ? {} : { customerId: req.user._id };
-    const plans = await EMIPlan.find(filter).sort({ createdAt: -1 });
+    const plans = await EMIPlan.find(filter).populate("customerId", "fullName mobile email userId").sort({ createdAt: -1 });
     res.json(plans);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -77,7 +77,7 @@ router.get("/", auth, async (req, res) => {
 // GET /api/emi/:id
 router.get("/:id", auth, async (req, res) => {
   try {
-    const plan = await EMIPlan.findById(req.params.id);
+    const plan = await EMIPlan.findById(req.params.id).populate("customerId", "fullName mobile email userId");
     if (!plan) return res.status(404).json({ message: "EMI plan not found" });
     res.json(plan);
   } catch (error) {
